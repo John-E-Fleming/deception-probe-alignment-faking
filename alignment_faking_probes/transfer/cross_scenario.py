@@ -279,7 +279,7 @@ def save_transfer_matrix(matrix: TransferMatrix, path: Path) -> None:
             for cell in matrix.cells
         ],
     }
-    path.write_text(json.dumps(payload, indent=2))
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def load_transfer_matrix(path: Path) -> TransferMatrix:
@@ -302,7 +302,7 @@ def load_transfer_matrix(path: Path) -> TransferMatrix:
     if not path.exists():
         raise FileNotFoundError(f"Transfer matrix JSON not found: {path}")
 
-    payload = json.loads(path.read_text())
+    payload = json.loads(path.read_text(encoding="utf-8"))
 
     cells = [
         TransferCell(
@@ -373,7 +373,15 @@ def plot_transfer_matrix_heatmap(
     if ax is None:
         fig, ax = plt.subplots(figsize=(8, 6))
     else:
-        fig = ax.figure
+        # ax.figure can be a SubFigure in matplotlib's type stubs; this
+        # function only supports top-level Figures. Narrow with an assert so
+        # the failure mode is a clear AssertionError rather than a confusing
+        # downstream error.
+        figure_attr = ax.figure
+        assert isinstance(figure_attr, Figure), (
+            f"Expected ax.figure to be a Figure, got {type(figure_attr).__name__}"
+        )
+        fig = figure_attr
 
     sns.heatmap(
         matrix,

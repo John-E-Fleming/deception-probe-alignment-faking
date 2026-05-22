@@ -120,6 +120,21 @@ def test_construction_rejects_inconsistent_n_negative() -> None:
         )
 
 
+def test_unicode_metadata_round_trips(tmp_path: Path) -> None:
+    """Non-ASCII metadata must survive save/load on any platform.
+
+    On Windows, ``Path.write_text`` defaults to the system encoding (often
+    cp1252) rather than UTF-8. Explicit ``encoding="utf-8"`` in save/load
+    ensures sidecars written on Windows can be read on RunPod (Linux) and
+    vice versa.
+    """
+    metadata = {"note": "café résultat 中文"}
+    dataset = _make_dataset(metadata=metadata)
+    save_activation_dataset(dataset, tmp_path / "unicode.npz")
+    loaded = load_activation_dataset(tmp_path / "unicode.npz")
+    assert loaded.metadata == metadata
+
+
 def test_load_raises_filenotfound_on_missing_npz(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match=".npz not found"):
         load_activation_dataset(tmp_path / "does_not_exist.npz")

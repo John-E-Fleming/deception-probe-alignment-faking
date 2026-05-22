@@ -192,6 +192,16 @@ def test_loaded_transfer_matrix_has_no_probes(tmp_path: Path) -> None:
     assert all(cell.probe_result is None for cell in loaded.cells)
 
 
+def test_unicode_metadata_round_trips(tmp_path: Path) -> None:
+    """Unicode in matrix metadata must survive save/load (Windows ↔ RunPod portability)."""
+    datasets = _make_all_four_datasets()
+    matrix = run_transfer_matrix(datasets, seed=42, apollo_commit="abc123")
+    matrix.metadata["note"] = "café résultat 中文"
+    save_transfer_matrix(matrix, tmp_path / "matrix.json")
+    loaded = load_transfer_matrix(tmp_path / "matrix.json")
+    assert loaded.metadata["note"] == "café résultat 中文"
+
+
 def test_save_transfer_matrix_raises_on_missing_parent_dir(tmp_path: Path) -> None:
     datasets = _make_all_four_datasets()
     matrix = run_transfer_matrix(datasets, seed=42, apollo_commit="abc123")

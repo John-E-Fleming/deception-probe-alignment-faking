@@ -159,7 +159,7 @@ def predict_probe(probe_result: ProbeResult, activations: np.ndarray) -> np.ndar
             f"Expected {n_features_trained} features per sample, got {activations.shape[1]}"
         )
     scaled = probe_result.scaler.transform(activations)
-    return probe_result.probe.predict_proba(scaled)[:, 1]
+    return np.asarray(probe_result.probe.predict_proba(scaled)[:, 1])
 
 
 def save_probe(probe_result: ProbeResult, path: Path) -> None:

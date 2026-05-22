@@ -118,7 +118,7 @@ def save_activation_dataset(dataset: ActivationDataset, path: Path) -> None:
         "n_negative": dataset.n_negative,
         "metadata": dataset.metadata,
     }
-    sidecar_path.write_text(json.dumps(sidecar_payload, indent=2))
+    sidecar_path.write_text(json.dumps(sidecar_payload, indent=2), encoding="utf-8")
 
 
 def load_activation_dataset(path: Path) -> ActivationDataset:
@@ -147,7 +147,7 @@ def load_activation_dataset(path: Path) -> ActivationDataset:
         activations = npz["activations"]
         labels = npz["labels"]
 
-    sidecar = json.loads(sidecar_path.read_text())
+    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
 
     return ActivationDataset(
         activations=activations,
