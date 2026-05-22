@@ -47,10 +47,10 @@ Week 1, Day 1 setup. No experiments run yet. See `.claude/sprint-plan.md` for th
 ## Prior Work in This Series
 
 - Blog 1: Probes detect unfaithful CoT at AP=0.484 (3.8× baseline) on Qwen2.5-7B. Established core probe training infrastructure. Repo: `CoT_Unfaithfulness_Detection_with_Linear_Probes`
-- Blog 2: Naive probes collapse under distribution shift (AUROC 0.754→0.590). LOCO training recovers to 0.806. Distribution-shift finding directly motivates Blog 4. Repo: `unfaithfulness-control-monitor`
-- Blog 3: Linear probes as monitors in a ControlArena AI control protocol with adversarially fine-tuned agents. Probe AUROC 0.939, 96.6% safety at 1% audit budget. Repo: `faithfulness-probe-control-arena`
+- Blog 2: Naive probes collapse under distribution shift (AUROC 0.754→0.590). LOCO training recovers to 0.806. Distribution-shift finding directly motivates this project. Repo: `unfaithfulness-control-monitor`
+- Blog 3 (**in progress, not yet published**): Linear probes as monitors in a ControlArena AI control protocol with adversarially fine-tuned agents. Preliminary numbers (probe AUROC ~0.939, ~96.6% safety at 1% audit budget) are internal-only and **must not be referenced in any public-facing artefact from this repo** until Blog 3 ships. Repo: `faithfulness-probe-control-arena`
 
-Blog 4 (this project) tests whether probe-based deception detection survives the hardest distribution shift: from instructed to naturally-emerging deception.
+Blog 4 (this project) tests whether probe-based deception detection survives the hardest distribution shift: from instructed to naturally-emerging deception. The deception probe trained here may also feed back into Blog 3 — revisit cross-references after Blog 4 ships.
 
 ---
 
