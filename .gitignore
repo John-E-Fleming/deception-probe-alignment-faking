@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Virtual environment (created by uv)
+.venv/
+
+# Environment variables and secrets
+.env
+
+# Model weights and checkpoints
+*.pt
+*.pth
+*.bin
+*.safetensors
+checkpoints/
+
+# Large data files (covers activations, probes, lora_adapters, eval_logs)
+data/**/*.pkl
+data/**/*.parquet
+data/**/*.csv
+data/**/*.pt
+data/**/*.bin
+data/**/*.safetensors
+data/**/*.json
+!data/README.MD
+!data/**/.gitkeep
+
+# Experiment logs (raw) — summaries in results/ are committed
+logs/
+wandb/
+
+# Inspect AI eval logs (can be large)
+.inspect/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# VSCode — keep settings if shared, ignore personal
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.vscode/settings.json
+
+# Claude Code project docs and local settings — kept private to this repo
+.claude/
+
+# Ignore environment secrets file
+.env.local
+
+# Personal notes
+blog_notes.md
+sprint-plan-2.md
