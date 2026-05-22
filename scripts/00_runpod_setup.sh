@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# RunPod onboarding for deception-probe-alignment-faking.
+#
+# Run once after the pod starts, from the project root (where pyproject.toml lives).
+# Idempotent — safe to re-run; existing clones are checked out to the pinned commit.
+#
+# What it does:
+#   1. Clones Apollo's deception-detection repo at the pinned commit.
+#   2. Installs Apollo editable into the project's uv venv with --no-deps.
+#      (Apollo pins torch<2.3 which would conflict with our torch>=2.4; --no-deps
+#      lets us register the package without disturbing the resolved environment.)
+#   3. Authenticates with HuggingFace + W&B from .env (if present).
+#   4. Verifies `import deception_detection` works in the project venv.
+#
+# Required env vars (typically in .env at the project root):
+#   HF_TOKEN         — HuggingFace token; Llama-3.3 is gated.
+#   WANDB_API_KEY    — Weights & Biases token.
+#
+# Pinned Apollo commit lives in pyproject.toml. If you change it there, update
+# APOLLO_COMMIT below too.
+
+set -euo pipefail
+
+APOLLO_COMMIT="f8ec4010e74927394709dffa22b97bdf8cd5a62f"
+APOLLO_DIR="/workspace/deception-detection"
+PROJECT_DIR="${PROJECT_DIR:-$(pwd)}"
+
+if [ ! -f "$PROJECT_DIR/pyproject.toml" ]; then
+    echo "ERROR: run this from the project root (no pyproject.toml at $PROJECT_DIR)" >&2
+    exit 1
+fi
+
+echo "==> Project root: $PROJECT_DIR"
+echo "==> Apollo target: $APOLLO_DIR @ $APOLLO_COMMIT"
+
+if [ -d "$APOLLO_DIR/.git" ]; then
+    echo "==> Apollo directory exists; updating to pinned commit"
+    git -C "$APOLLO_DIR" fetch --quiet origin
+    git -C "$APOLLO_DIR" checkout --quiet "$APOLLO_COMMIT"
+else
+    echo "==> Cloning Apollo"
+    git clone https://github.com/ApolloResearch/deception-detection "$APOLLO_DIR"
+    git -C "$APOLLO_DIR" checkout --quiet "$APOLLO_COMMIT"
+fi
+
+echo "==> Installing Apollo editable with --no-deps (avoids torch downgrade)"
+uv pip install --no-deps -e "$APOLLO_DIR"
+
+echo "==> Authenticating HuggingFace + W&B from .env"
+if [ -f "$PROJECT_DIR/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$PROJECT_DIR/.env"
+    set +a
+
+    if [ -n "${HF_TOKEN:-}" ]; then
+        uv run huggingface-cli login --token "$HF_TOKEN" \
+            || echo "  WARNING: HF login failed (check HF_TOKEN)"
+    else
+        echo "  HF_TOKEN not set in .env; skipping HF login"
+    fi
+
+    if [ -n "${WANDB_API_KEY:-}" ]; then
+        uv run wandb login "$WANDB_API_KEY" \
+            || echo "  WARNING: W&B login failed (check WANDB_API_KEY)"
+    else
+        echo "  WANDB_API_KEY not set in .env; skipping W&B login"
+    fi
+else
+    echo "  No .env at $PROJECT_DIR/.env; skipping auth"
+fi
+
+echo "==> Verifying Apollo import"
+uv run python -c "import deception_detection; print(f'  Apollo OK: {deception_detection.__file__}')"
+
+echo "==> Verifying GPU access"
+uv run python -c "import torch; print(f'  CUDA available: {torch.cuda.is_available()}'); print(f'  Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"none\"}')"
+
+echo "==> Setup complete."
