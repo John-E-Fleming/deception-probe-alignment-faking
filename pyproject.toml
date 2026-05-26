@@ -7,7 +7,10 @@ requires-python = ">=3.11"
 
 dependencies = [
     # Core ML
-    "torch>=2.4.0",
+    # torch is upper-bounded so we land on a CUDA 12.6 wheel — RunPod hosts
+    # commonly ship NVIDIA driver 12.6–12.8 and can't run torch wheels built
+    # against CUDA 13.0+. See [tool.uv.sources] below for the index routing.
+    "torch>=2.4.0,<2.9",
     "transformers>=4.51,<5",
     "accelerate>=1.0.0",
     "nnsight>=0.5.15",
@@ -51,6 +54,20 @@ dev = [
 # Pinned commit: f8ec4010e74927394709dffa22b97bdf8cd5a62f
 # This commit hash must be logged in every W&B run and in results/experiment_metadata.json.
 # See README RunPod setup section for full instructions.
+
+# Route torch through the CUDA 12.6 PyTorch index on Linux. RunPod hosts commonly
+# ship NVIDIA driver 12.6–12.8 which can't run torch built against CUDA 13.0+
+# (driver version is NOT forward-compatible across major CUDA versions).
+# Windows / macOS fall back to PyPI defaults — local dev doesn't need GPU torch.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu126", marker = "sys_platform == 'linux'" },
+]
 
 [build-system]
 requires = ["hatchling"]
