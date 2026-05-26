@@ -13,9 +13,9 @@ Key papers:
 
 ## Architecture
 
-- `alignment_faking_probes/data/` — Transcript generation, AF classifier labeling, NNSight activation extraction, ActivationDataset save/load
-- `alignment_faking_probes/probes/` — ProbeResult dataclass, train_probe, predict_probe, evaluation metrics, plotting
-- `alignment_faking_probes/transfer/` — TransferCell, TransferMatrix, run_transfer_matrix (the core experiment)
+- `alignment_faking_probes/data/` — Transcript generation, AF classifier labeling, per-token activation extraction (wrapping Apollo's `Activations.from_model`), per-token `ActivationDataset` indexed by `sample_id`
+- `alignment_faking_probes/probes/` — ProbeResult dataclass, train_probe (GroupKFold CV over `sample_id`), predict_probe (per-token), aggregate_token_scores (per-token → per-sample), evaluation metrics, plotting
+- `alignment_faking_probes/transfer/` — TransferCell, TransferMatrix, run_transfer_matrix (per-sample AUROC after mean aggregation by default)
 - `scripts/` — Numbered pipeline steps (01 through 06, run in order)
 - `configs/` — Per-experiment YAML configs (no hardcoded hyperparameters)
 - `tests/` — Pytest suite; mock-tensor based for everything except `@pytest.mark.gpu` tests
@@ -29,19 +29,19 @@ See `.claude/module-design-spec.md` for the full module-by-module API spec and `
 - Primary: meta-llama/Llama-3.3-70B-Instruct (80 layers, hidden_dim=8192)
 - Quantisation on RunPod: 4-bit (bitsandbytes NF4) for transcript generation, prefer BF16 for activation extraction if VRAM allows. Quantisation config must be consistent across all extraction runs and logged in W&B metadata.
 - Apollo's published probe weights are Llama-3.3-70B-Instruct specific — switching models would conflate the replication question with the transfer question.
+- AF detection-mask choice (for `build_af_dialogue_dataset`): scratchpad + response for the headline transfer matrix; scratchpad-only and response-only as ablations in `notebooks/`.
 
 ## Status
 
-Sprint week 1, post-setup. Track A modules (data, probes, transfer subpackages) are implemented and tested locally — 90+ tests passing, ruff and mypy strict clean. RunPod environment validated on A100 80GB: `scripts/00_runpod_setup.sh` handles all setup; the smoke test loads Llama-3.3-70B under 4-bit quantisation and runs `extract_activations` end-to-end. Apollo format cross-check (`scripts/check_apollo_format.py` — has 2 TODO stubs) is the next gate before any real experimental run. No transcripts generated yet, no transfer matrix populated yet.
+Sprint week 1, post-setup. The extraction pipeline now wraps Apollo's `Activations.from_model` so per-token activations match Apollo's published-probe format exactly (the previous NNSight + mean-pool path was deleted). Core modules refactored to per-token semantics: `ActivationDataset` indexed by `sample_id`, `GroupKFold` CV groups by sample, `aggregate_token_scores` (default mean, matching Apollo's `prompt_scorer.py`) collapses per-token → per-sample before transfer-matrix metrics. 114 tests passing locally with ruff + mypy strict clean. **Next gate:** RunPod replication of Apollo's published roleplaying AUROC (≈ 0.96) via `scripts/check_apollo_format.py` — has 2 TODO stubs for Apollo's data + probe-loading APIs. No transcripts generated yet, no transfer matrix populated yet.
 
-See `.claude/sprint-plan.md` for the full 4-week plan and priority cut order if time runs short.
+See `.claude/sprint-plan.md` for the full 4-week plan and priority cut order if time runs short. `.claude/module-design-spec.md` describes the pre-refactor per-sample contract and is now stale on the activation interface — refresh when convenient.
 
 ## Key Dependencies
 
-- Apollo `deception-detection`: pinned commit hash documented in `pyproject.toml` (replication target — never retrain Apollo's probes from scratch). Apollo is **not** a uv-managed dependency: its `torch<2.3` pin conflicts with this project's `torch>=2.4`, so it's cloned and installed editable on RunPod by `scripts/00_runpod_setup.sh`. The commit hash must be logged as a W&B config field on every experiment run and written into `results/experiment_metadata.json`.
+- Apollo `deception-detection`: pinned commit hash documented in `pyproject.toml` (replication target — never retrain Apollo's probes from scratch). Apollo is **not** a uv-managed dependency: its `torch<2.3` pin conflicts with this project's `torch>=2.4`, so it's cloned and installed editable on RunPod by `scripts/00_runpod_setup.sh`. Apollo's `Activations.from_model` is also our activation extraction backend (called from `alignment_faking_probes.data.activation_extraction.extract_activations`). The commit hash must be logged as a W&B config field on every experiment run and written into `results/experiment_metadata.json`.
 - Redwood `alignment_faking_public`: prompt setup and AF automated classifier
-- NNSight: residual stream activation extraction
-- scikit-learn: probe training (logistic regression with `class_weight='balanced'`)
+- scikit-learn: probe training (logistic regression with `class_weight='balanced'`) and `GroupKFold` CV over `sample_id`
 - transformers + accelerate: model loading and inference for 70B with quantisation
 - bitsandbytes: Linux-only uv dependency for 4-bit / 8-bit quantised model loading
 - torch: pinned to `>=2.4,<2.9` and routed through the cu126 PyTorch index on Linux (RunPod drivers vary; cu126 wheels work on drivers ≥ 12.6)

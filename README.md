@@ -4,12 +4,16 @@ Testing whether linear probes trained on instructed deception generalise to
 naturally-emerging alignment faking. Continues an ongoing research series on
 probe-based deception detection in LLMs.
 
-> **Status:** Sprint week 1, post-setup. Core modules (data, probes, transfer)
-> implemented and tested locally — 90+ tests passing, ruff and mypy strict
-> clean. RunPod environment validated on A100 80GB: Llama-3.3-70B loads under
-> 4-bit quantisation and `extract_activations` runs end-to-end. Apollo
-> format cross-check and real experiments are next. No transfer matrix
-> results yet. Interface, results, and documentation subject to change.
+> **Status:** Sprint week 1, post-setup. Extraction pipeline now delegates
+> to Apollo Research's `Activations.from_model` so per-token activations
+> are directly compatible with Apollo's published probe weights — the
+> previous NNSight + mean-pool path has been removed. Core modules
+> (per-token `ActivationDataset` with `sample_id`, `GroupKFold` CV,
+> `aggregate_token_scores`) re-implemented around the new contract; 114
+> tests passing locally with ruff + mypy strict clean. **Next gate:**
+> reproduce Apollo's published roleplaying AUROC (≈ 0.96) on RunPod via
+> `scripts/check_apollo_format.py`. No transfer matrix results yet.
+> Interface, results, and documentation subject to change.
 
 ---
 
@@ -166,13 +170,13 @@ experiment run and written into `results/experiment_metadata.json`. See
 | Script                          | Status   | Purpose |
 |---------------------------------|----------|---------|
 | `00_runpod_setup.sh`            | ✓ done   | RunPod environment setup (one-shot, idempotent) |
-| `smoke_test_extraction.py`      | ✓ done   | Pre-experiment GPU sanity check for `extract_activations` |
-| `check_apollo_format.py`        | partial  | Cross-check our NNSight extraction against Apollo's (2 TODO stubs require Apollo-API inspection) |
+| `smoke_test_extraction.py`      | ✓ done   | Pre-experiment GPU sanity check for the Apollo-backed `extract_activations` |
+| `check_apollo_format.py`        | partial  | Replicate Apollo's published AUROC on roleplaying — 2 TODO stubs for Apollo's data + probe-loading APIs (see script docstring) |
 | `01_generate_af_transcripts.py` | planned  | Generate ~800–1000 alignment faking transcripts from Llama-3.3-70B-Instruct using Redwood's prompt setup |
 | `02_label_af_transcripts.py`    | planned  | Run Redwood's automated classifier; filter by confidence threshold |
 | `03_create_train_test_split.py` | planned  | 80/20 stratified split — freezes the AF test set for the rest of the project |
-| `04_extract_activations.py`     | planned  | Extract residual stream activations for Apollo scenarios and the AF train set |
-| `05_run_transfer_experiment.py` | planned  | Populate the cross-scenario transfer matrix; write results to `results/` |
+| `04_extract_activations.py`     | planned  | Extract per-token residual stream activations via Apollo's `Activations.from_model` for Apollo scenarios and the AF train set |
+| `05_run_transfer_experiment.py` | planned  | Populate the cross-scenario transfer matrix (per-sample AUROC after mean aggregation); write results to `results/` |
 | `06_generate_plots.py`          | planned  | ROC curves, transfer matrix heatmap, layer sweep heatmap |
 
 Each numbered experimental script reads its configuration from
