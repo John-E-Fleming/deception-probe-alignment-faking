@@ -1,69 +1,86 @@
-"""Extract mean-pooled residual stream activations via NNSight.
+"""Per-token residual stream activation extraction via Apollo's pipeline.
 
-This module hooks into specified residual-stream layers of a Hugging Face
-causal LM, runs a forward pass on a batch of texts, and mean-pools the
-captured hidden states over the sequence dimension.
+We delegate the actual model forward pass and detection masking to Apollo
+Research's ``deception_detection.activations.Activations.from_model``, then
+**convert** Apollo's per-token output into our own ``ActivationDataset``
+format (``.npz`` + JSON sidecar, indexed by ``sample_id``). Delegating the
+forward pass is what makes our activations directly compatible with
+Apollo's published probe weights — the alternative of running our own
+NNSight code introduced silent format mismatches.
 
-Local-testable pieces (``ExtractionConfig`` validation, ``_pool_hidden``,
-``get_af_extraction_texts``) have unit tests. ``extract_activations``
-itself requires a GPU and a Llama-3.3 model; its only validation is the
-``@pytest.mark.gpu`` smoke test, run manually on RunPod.
+Two layers of code:
 
-**Apollo compatibility check (REQUIRED before relying on output).** Apollo's
-probe weights were trained against activations produced by *their*
-extraction code. If our NNSight extraction differs in pooling, layer
-indexing, or normalisation, every transfer-matrix cell silently uses the
-wrong numbers. Before running the real transfer experiment on RunPod,
-cross-check this module's output against ``deception_detection/experiment.py``
-on a single Apollo scenario and confirm activations agree to floating-point
-tolerance.
+1. **Pure helpers** (``_af_transcript_to_dialogue_payload``,
+   ``_build_activation_datasets_from_apollo_output``) operate on
+   plain-Python / NumPy inputs only. No Apollo or torch imports needed.
+   Fully unit-tested locally without a GPU.
+
+2. **Apollo-coupled wrappers** (``build_af_dialogue_dataset``,
+   ``extract_activations``) call into Apollo's ``Dialogue`` /
+   ``DialogueDataset`` / ``Activations`` types. Validated on RunPod via
+   ``scripts/smoke_test_extraction.py``; the Apollo API surface may need
+   small adjustments depending on the pinned Apollo commit (see
+   ``pyproject.toml`` for the pin).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
-import torch
 
+from alignment_faking_probes.data.activation_store import ActivationDataset
 from alignment_faking_probes.data.labeling import LabelledTranscript
 
-_VALID_QUANTISATIONS = ("4bit", "8bit", "none")
+if TYPE_CHECKING:
+    from deception_detection.data.base import DialogueDataset
+    from transformers import PreTrainedModel, PreTrainedTokenizerBase
+
+#: Valid detection-mask scopes for alignment-faking transcripts.
+#: - ``"scratchpad"``: mark only the model's scratchpad reasoning tokens.
+#: - ``"response"``: mark only the model's final response tokens (matches
+#:   Apollo's choice for their scenarios).
+#: - ``"both"`` (default for AF headline): mark scratchpad + response.
+DetectionMaskKind = Literal["scratchpad", "response", "both"]
+_VALID_DETECTION_MASK_KINDS = ("scratchpad", "response", "both")
 
 
 @dataclass
 class ExtractionConfig:
     """Configuration for residual-stream activation extraction.
 
+    Apollo's ``Activations.from_model`` loads the model with its own
+    precision / autocast handling, so quantisation no longer lives in this
+    config — the caller passes a preloaded model.
+
     Attributes:
-        model_name: Hugging Face model identifier
-            (e.g. ``"meta-llama/Llama-3.3-70B-Instruct"``).
-        layers: Residual stream layer indices to extract from.
-        batch_size: Number of texts processed per forward pass.
-        quantisation: One of ``"4bit"``, ``"8bit"``, ``"none"``. 4-bit uses
-            bitsandbytes NF4. Quantisation can shift activation geometry —
-            keep this consistent across all extraction runs in a project.
-        device: PyTorch device specifier (``"cuda"`` or ``"cpu"``).
-        max_length: Maximum token length; longer inputs are truncated. Must
-            cover the longest scratchpad + response in the dataset.
+        model_name: Hugging Face model identifier (recorded in metadata for
+            traceability; the actual model is passed in separately).
+        layers: Residual stream layer indices to extract.
+        batch_size: Forward-pass batch size handed to ``Activations.from_model``.
+        max_length: Maximum token length; longer inputs are truncated.
+        detection_mask_kind: Which tokens count as "detection positions"
+            for AF transcripts. Apollo scenarios bring their own masks via
+            their ``DialogueDataset``; this setting is only consulted by
+            ``build_af_dialogue_dataset``.
 
     Raises:
-        ValueError: If ``quantisation`` is not recognised, ``batch_size`` /
-            ``max_length`` are non-positive, or ``layers`` is empty / contains
-            negative indices.
+        ValueError: If any field is out of its valid range.
     """
 
     model_name: str
     layers: list[int]
     batch_size: int
-    quantisation: str
-    device: str
     max_length: int
+    detection_mask_kind: DetectionMaskKind = "both"
 
     def __post_init__(self) -> None:
-        if self.quantisation not in _VALID_QUANTISATIONS:
+        if self.detection_mask_kind not in _VALID_DETECTION_MASK_KINDS:
             raise ValueError(
-                f"quantisation must be one of {_VALID_QUANTISATIONS}, got {self.quantisation!r}"
+                f"detection_mask_kind must be one of {_VALID_DETECTION_MASK_KINDS}, "
+                f"got {self.detection_mask_kind!r}"
             )
         if self.batch_size <= 0:
             raise ValueError(f"batch_size must be positive, got {self.batch_size}")
@@ -75,184 +92,246 @@ class ExtractionConfig:
             raise ValueError(f"All layers must be non-negative, got {self.layers}")
 
 
-def _pool_hidden(hidden: torch.Tensor, layer: int) -> np.ndarray:
-    """Mean-pool a 3D hidden state tensor over the sequence dimension.
+# ---------------------------------------------------------------------------
+# Pure helpers — no Apollo / torch imports. Fully unit-tested locally.
+# ---------------------------------------------------------------------------
+
+
+def _af_transcript_to_dialogue_payload(
+    labelled: LabelledTranscript,
+    mask_kind: DetectionMaskKind,
+) -> dict[str, Any]:
+    """Build the message + detection-mask payload for one AF transcript.
+
+    Returns a plain dict matching the kwargs Apollo's ``Dialogue``
+    constructor expects. Keeping this pure-Python means we can unit-test
+    the message construction and mask logic locally; the Apollo integration
+    point lives in ``build_af_dialogue_dataset``.
+
+    The returned dict has:
+
+    - ``messages``: list of ``{role, content, detect}`` dicts. ``detect`` is
+      a per-message bool that flags whether the message's tokens should be
+      included in the detection mask (per the chosen ``mask_kind``).
+    - ``label``: ``"deceptive"`` if ``labelled.label == 1`` else ``"honest"``
+      (Apollo's convention).
 
     Args:
-        hidden: Tensor of shape ``(batch, seq_len, hidden_dim)``.
-        layer: Layer index, used only for error messages.
-
-    Returns:
-        ndarray of shape ``(batch, hidden_dim)``.
+        labelled: A LabelledTranscript with a non-None scratchpad.
+        mask_kind: Which tokens to flag for the detection mask.
 
     Raises:
-        RuntimeError: If ``hidden`` is not 3D. Shape mismatches usually
-            mean an upstream NNSight hook captured the wrong tensor.
+        ValueError: If ``labelled.transcript.scratchpad`` is None (callers
+            should ``filter_included`` first).
     """
-    if hidden.ndim != 3:
-        raise RuntimeError(
-            f"Layer {layer}: expected 3D tensor (batch, seq_len, hidden_dim), "
-            f"got shape {tuple(hidden.shape)}"
+    if labelled.transcript.scratchpad is None:
+        raise ValueError(
+            "Transcript with no scratchpad encountered; "
+            "call filter_included first to drop excluded transcripts."
         )
-    # ``.detach()`` drops the autograd graph that nnsight's hooks attach
-    # (no gradients are needed at extraction time). ``.float()`` casts
-    # bf16 / fp16 activations to fp32 so numpy can represent them — numpy
-    # has no bf16 dtype, and downstream probe training expects fp32.
-    return hidden.detach().float().mean(dim=1).cpu().numpy()
+
+    detect_scratchpad = mask_kind in ("scratchpad", "both")
+    detect_response = mask_kind in ("response", "both")
+
+    return {
+        "messages": [
+            {"role": "user", "content": labelled.transcript.prompt, "detect": False},
+            {
+                "role": "assistant_scratchpad",
+                "content": labelled.transcript.scratchpad,
+                "detect": detect_scratchpad,
+            },
+            {
+                "role": "assistant",
+                "content": labelled.transcript.response,
+                "detect": detect_response,
+            },
+        ],
+        "label": "deceptive" if labelled.label == 1 else "honest",
+    }
 
 
-def get_af_extraction_texts(labelled: list[LabelledTranscript]) -> list[str]:
-    """Build extraction texts from AF transcripts.
+def _build_activation_datasets_from_apollo_output(
+    masked_acts: np.ndarray,
+    sample_id: np.ndarray,
+    sample_labels: np.ndarray,
+    config: ExtractionConfig,
+    scenario: str,
+    apollo_commit: str,
+) -> dict[int, ActivationDataset]:
+    """Convert Apollo's per-token activations into our ActivationDataset format.
 
-    Concatenates the scratchpad and the response with a blank-line
-    separator. We extract from what the model produced (its scratchpad
-    reasoning + final response), not from the prompt it was given — the
-    probe reads the model's internal state during its own generation.
+    Apollo's ``Activations.get_masked_activations()`` returns
+    ``(n_tokens, n_layers, hidden_dim)``. We slice out each requested layer
+    and pair it with per-token labels (sample-level labels broadcast across
+    each sample's tokens).
 
     Args:
-        labelled: LabelledTranscripts to convert. Callers should filter to
-            ``included=True`` first; this function rejects any transcript
-            with ``scratchpad=None`` because such transcripts are excluded
-            from analysis by convention.
+        masked_acts: Apollo's flattened activations, shape
+            ``(n_tokens, n_layers, hidden_dim)``. Layer axis order MUST
+            match ``config.layers``.
+        sample_id: Per-token sample identifiers of shape ``(n_tokens,)``.
+        sample_labels: Per-sample binary labels of shape ``(n_samples,)``.
+            Broadcast across tokens via ``sample_id``.
+        config: ExtractionConfig used to label the output (only ``model_name``,
+            ``layers``, and ``detection_mask_kind`` are read here).
+        scenario: Scenario name string for the output ActivationDatasets.
+        apollo_commit: Apollo repo commit hash for provenance metadata.
 
     Returns:
-        One string per input, in the same order as the input list.
+        Dict mapping layer index → ActivationDataset.
 
     Raises:
-        ValueError: If any transcript has ``scratchpad=None``. Filter
-            excluded transcripts with ``filter_included`` first.
+        ValueError: If ``masked_acts``'s layer axis doesn't match ``len(config.layers)``.
+        ValueError: If ``sample_id`` and ``masked_acts`` row counts disagree.
+        ValueError: If ``sample_labels`` length doesn't match the unique sample count.
     """
-    texts: list[str] = []
-    for item in labelled:
-        if item.transcript.scratchpad is None:
-            raise ValueError(
-                "Transcript with no scratchpad encountered; "
-                "call filter_included first to drop excluded transcripts."
-            )
-        texts.append(f"{item.transcript.scratchpad}\n\n{item.transcript.response}")
-    return texts
+    n_tokens = masked_acts.shape[0]
+    if sample_id.shape != (n_tokens,):
+        raise ValueError(
+            f"masked_acts rows ({n_tokens}) and sample_id ({sample_id.shape}) mismatch"
+        )
+    if masked_acts.shape[1] != len(config.layers):
+        raise ValueError(
+            f"masked_acts has {masked_acts.shape[1]} layers but config requested "
+            f"{len(config.layers)} ({config.layers})"
+        )
+    unique_ids = np.unique(sample_id)
+    n_samples = unique_ids.shape[0]
+    if sample_labels.shape != (n_samples,):
+        raise ValueError(f"sample_labels shape {sample_labels.shape} != expected ({n_samples},)")
+
+    # Broadcast sample-level labels to per-token labels via sample_id.
+    per_token_labels = sample_labels[sample_id]
+    n_positive = int((sample_labels == 1).sum())
+    n_negative = int((sample_labels == 0).sum())
+
+    metadata = {
+        "apollo_commit": apollo_commit,
+        "detection_mask_kind": config.detection_mask_kind,
+        "extraction_date": datetime.now(timezone.utc).isoformat(),
+    }
+
+    datasets: dict[int, ActivationDataset] = {}
+    for layer_axis_idx, layer in enumerate(config.layers):
+        layer_acts = np.ascontiguousarray(masked_acts[:, layer_axis_idx, :])
+        datasets[layer] = ActivationDataset(
+            activations=layer_acts.astype(np.float32, copy=False),
+            labels=per_token_labels.astype(np.int64, copy=False),
+            sample_id=sample_id.astype(np.int64, copy=False),
+            scenario=scenario,
+            layer=layer,
+            model_name=config.model_name,
+            n_positive=n_positive,
+            n_negative=n_negative,
+            metadata=metadata.copy(),
+        )
+    return datasets
+
+
+# ---------------------------------------------------------------------------
+# Apollo-coupled wrappers — exercised on RunPod via the smoke test.
+# ---------------------------------------------------------------------------
+
+
+def build_af_dialogue_dataset(
+    labelled: list[LabelledTranscript],
+    mask_kind: DetectionMaskKind,
+) -> "DialogueDataset":
+    """Wrap AF transcripts as an Apollo DialogueDataset.
+
+    Apollo's pipeline tokenises and runs the model from a ``DialogueDataset``
+    of ``Dialogue`` objects. This function builds those objects for our AF
+    transcripts so the same Apollo extraction code that handles roleplaying
+    / insider_trading / sandbagging_v2 can also handle alignment faking
+    transcripts.
+
+    Args:
+        labelled: AF transcripts to convert. Must all have ``included=True``
+            and a non-None ``scratchpad``.
+        mask_kind: Which tokens count as detection positions (see
+            ``DetectionMaskKind``).
+
+    Returns:
+        An Apollo ``DialogueDataset`` ready to pass to ``Activations.from_model``.
+
+    Raises:
+        ValueError: From the pure helper if any transcript is missing a
+            scratchpad.
+    """
+    from deception_detection.data.base import Dialogue, DialogueDataset
+
+    payloads = [_af_transcript_to_dialogue_payload(item, mask_kind) for item in labelled]
+    dialogues = [Dialogue(**payload) for payload in payloads]
+    return DialogueDataset(dialogues=dialogues)
 
 
 def extract_activations(
-    texts: list[str],
+    dialogue_dataset: "DialogueDataset",
     config: ExtractionConfig,
-) -> dict[int, np.ndarray]:
-    """Extract mean-pooled residual stream activations from a list of texts.
+    model: "PreTrainedModel",
+    tokenizer: "PreTrainedTokenizerBase",
+    scenario: str,
+    apollo_commit: str,
+) -> dict[int, ActivationDataset]:
+    """Extract per-token residual stream activations using Apollo's pipeline.
 
-    Runs one forward pass per batch and captures the residual stream
-    output at each configured layer simultaneously. Mean-pools each captured
-    tensor over the sequence dimension before returning.
-
-    Apollo-format check is the caller's responsibility — see this module's
-    docstring. NNSight API details vary across versions; the implementation
-    below targets nnsight>=0.5,<1.0 (per pyproject.toml) and is validated
-    only by manual smoke tests on RunPod.
+    Tokenises ``dialogue_dataset`` with Apollo's ``TokenizedDataset``, runs
+    ``Activations.from_model`` to capture activations at the configured
+    layers, applies the dataset's detection mask, then converts the output
+    into one ``ActivationDataset`` per requested layer.
 
     Args:
-        texts: List of strings to extract activations from. For AF
-            transcripts, build texts with :func:`get_af_extraction_texts`.
-        config: Extraction configuration (model, layers, batch, quantisation).
+        dialogue_dataset: Apollo DialogueDataset. For AF, build via
+            ``build_af_dialogue_dataset``; for Apollo scenarios, use
+            Apollo's own data loaders.
+        config: ExtractionConfig (model_name, layers, batch_size, max_length).
+        model: Pre-loaded HuggingFace ``PreTrainedModel``.
+        tokenizer: Matching ``PreTrainedTokenizerBase``.
+        scenario: Scenario name for the output datasets' ``scenario`` field.
+        apollo_commit: Apollo repo commit hash for provenance.
 
     Returns:
-        Dict mapping layer index → ndarray of shape ``(n_texts, hidden_dim)``.
-        For Llama-3.3-70B-Instruct, ``hidden_dim`` is 8192.
-
-    Raises:
-        ValueError: If any layer in ``config.layers`` is out of range for
-            the loaded model.
-        RuntimeError: If a captured hidden state is not 3D (see
-            :func:`_pool_hidden`).
+        Dict mapping layer index → per-token ActivationDataset.
     """
-    from nnsight import LanguageModel
+    from deception_detection.activations import Activations
+    from deception_detection.tokenized_data import TokenizedDataset
 
-    quantisation_config = _build_quantisation_config(config.quantisation)
-    model_kwargs: dict[str, object] = {"device_map": config.device}
-    if quantisation_config is not None:
-        model_kwargs["quantization_config"] = quantisation_config
-    model = LanguageModel(config.model_name, **model_kwargs)
-
-    n_layers = len(model.model.layers)
-    invalid_layers = [layer for layer in config.layers if layer >= n_layers]
-    if invalid_layers:
-        raise ValueError(
-            f"Layer indices {invalid_layers} out of range; model has {n_layers} layers"
-        )
-
-    per_layer_batches: dict[int, list[np.ndarray]] = {layer: [] for layer in config.layers}
-
-    # Tokenisation with truncation happens explicitly so nnsight's trace
-    # block doesn't have to know about max_length (the kwarg name varies
-    # across nnsight versions). Passing pre-tokenised inputs makes the
-    # truncation contract explicit and version-independent.
-    tokenizer = model.tokenizer
-    pad_token_id = (
-        tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    tokenized = TokenizedDataset.from_dialogue_list(
+        dialogue_dataset.dialogues,
+        tokenizer,
     )
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = pad_token_id
+    acts = Activations.from_model(
+        model,
+        tokenized,
+        layers=config.layers,
+        batch_size=config.batch_size,
+    )
 
-    for batch_start in range(0, len(texts), config.batch_size):
-        batch = texts[batch_start : batch_start + config.batch_size]
-        encoded = tokenizer(
-            batch,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=config.max_length,
-        )
-        # Pre-initialise captures so an exception swallowed by nnsight's
-        # trace __exit__ surfaces as an empty-dict assertion rather than
-        # an UnboundLocalError that hides the real failure.
-        captured: dict[int, object] = {}
-        with model.trace(encoded):
-            for layer in config.layers:
-                # Capture the layer's full output. nnsight versions differ on
-                # whether `.output` is the hidden state tensor directly or the
-                # raw module-return tuple `(hidden, ...)`. We handle both
-                # below; never index with `[0]` here because newer nnsight
-                # would treat that as a batch-dim index on the tensor.
-                captured[layer] = model.model.layers[layer].output.save()
-        if len(captured) != len(config.layers):
-            raise RuntimeError(
-                f"nnsight trace exited without populating captures for all "
-                f"requested layers (got {sorted(captured.keys())}, expected "
-                f"{config.layers}). Likely an API mismatch or model-structure "
-                f"path issue in `model.model.layers[layer].output`."
-            )
-        for layer, save in captured.items():
-            hidden = save.value if hasattr(save, "value") else save
-            # Some nnsight / HF model combinations expose the layer output as
-            # a tuple (hidden_state, attn_weights, ...); unwrap when needed.
-            if isinstance(hidden, tuple):
-                hidden = hidden[0]
-            assert isinstance(hidden, torch.Tensor), (
-                f"Layer {layer}: expected torch.Tensor after nnsight capture, "
-                f"got {type(hidden).__name__}"
-            )
-            per_layer_batches[layer].append(_pool_hidden(hidden, layer))
+    # (n_tokens, n_layers, hidden_dim)
+    masked_acts = acts.get_masked_activations().detach().float().cpu().numpy()
 
-    return {layer: np.concatenate(per_layer_batches[layer], axis=0) for layer in config.layers}
+    # Reconstruct sample_id from the boolean detection mask.
+    # detection_mask shape: (batch, seqpos) bool. Each batch row is one sample.
+    detection_mask = tokenized.detection_mask.cpu().numpy()
+    tokens_per_sample = detection_mask.sum(axis=1).astype(np.int64)
+    sample_id = np.repeat(
+        np.arange(detection_mask.shape[0], dtype=np.int64),
+        tokens_per_sample,
+    )
 
+    # Sample-level labels from the DialogueDataset. Apollo encodes label as
+    # a string ("deceptive" | "honest") on Dialogue; we map back to 0/1.
+    sample_labels = np.array(
+        [1 if dialogue.label == "deceptive" else 0 for dialogue in dialogue_dataset.dialogues],
+        dtype=np.int64,
+    )
 
-def _build_quantisation_config(quantisation: str) -> object | None:
-    """Build a ``BitsAndBytesConfig`` for the given quantisation string.
-
-    Returns ``None`` for ``"none"`` so the model loads at its default
-    precision. The bitsandbytes library is a Linux-only uv dependency (see
-    ``pyproject.toml``) — quantised paths will fail on Windows / macOS
-    where the wheel is unavailable, which is intended.
-    """
-    if quantisation == "none":
-        return None
-    from transformers import BitsAndBytesConfig
-
-    if quantisation == "4bit":
-        return BitsAndBytesConfig(  # type: ignore[no-untyped-call]
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-        )
-    if quantisation == "8bit":
-        return BitsAndBytesConfig(load_in_8bit=True)  # type: ignore[no-untyped-call]
-    raise ValueError(f"Unknown quantisation: {quantisation}")
+    return _build_activation_datasets_from_apollo_output(
+        masked_acts=masked_acts,
+        sample_id=sample_id,
+        sample_labels=sample_labels,
+        config=config,
+        scenario=scenario,
+        apollo_commit=apollo_commit,
+    )

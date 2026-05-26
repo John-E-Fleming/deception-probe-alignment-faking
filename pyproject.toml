@@ -13,7 +13,9 @@ dependencies = [
     "torch>=2.4.0,<2.9",
     "transformers>=4.51,<5",
     "accelerate>=1.0.0",
-    "nnsight>=0.5.15",
+    # nnsight removed: activation extraction now delegates to Apollo's
+    # deception_detection.activations.Activations.from_model via HF transformers
+    # with output_hidden_states=True. See alignment_faking_probes.data.activation_extraction.
 
     # Probe training & evaluation
     "scikit-learn>=1.5.0",
