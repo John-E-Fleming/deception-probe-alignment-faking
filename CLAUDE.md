@@ -32,17 +32,21 @@ See `.claude/module-design-spec.md` for the full module-by-module API spec and `
 
 ## Status
 
-Week 1, Day 1 setup. No experiments run yet. See `.claude/sprint-plan.md` for the full 4-week plan, the four-cell 2×2 matrix that must be populated, and the priority cut order if time runs short.
+Sprint week 1, post-setup. Track A modules (data, probes, transfer subpackages) are implemented and tested locally — 90+ tests passing, ruff and mypy strict clean. RunPod environment validated on A100 80GB: `scripts/00_runpod_setup.sh` handles all setup; the smoke test loads Llama-3.3-70B under 4-bit quantisation and runs `extract_activations` end-to-end. Apollo format cross-check (`scripts/check_apollo_format.py` — has 2 TODO stubs) is the next gate before any real experimental run. No transcripts generated yet, no transfer matrix populated yet.
+
+See `.claude/sprint-plan.md` for the full 4-week plan and priority cut order if time runs short.
 
 ## Key Dependencies
 
-- Apollo `deception-detection`: pinned git dependency in `pyproject.toml` (replication target — never retrain Apollo's probes from scratch). The commit hash must be logged as a W&B config field on every experiment run and written into `results/experiment_metadata.json`.
+- Apollo `deception-detection`: pinned commit hash documented in `pyproject.toml` (replication target — never retrain Apollo's probes from scratch). Apollo is **not** a uv-managed dependency: its `torch<2.3` pin conflicts with this project's `torch>=2.4`, so it's cloned and installed editable on RunPod by `scripts/00_runpod_setup.sh`. The commit hash must be logged as a W&B config field on every experiment run and written into `results/experiment_metadata.json`.
 - Redwood `alignment_faking_public`: prompt setup and AF automated classifier
 - NNSight: residual stream activation extraction
 - scikit-learn: probe training (logistic regression with `class_weight='balanced'`)
 - transformers + accelerate: model loading and inference for 70B with quantisation
+- bitsandbytes: Linux-only uv dependency for 4-bit / 8-bit quantised model loading
+- torch: pinned to `>=2.4,<2.9` and routed through the cu126 PyTorch index on Linux (RunPod drivers vary; cu126 wheels work on drivers ≥ 12.6)
 - W&B: probe sweeps and transfer experiment runs (`group="transfer-matrix"`)
-- uv: dependency and environment management (never pip, never requirements.txt)
+- uv: dependency and environment management (never pip, never requirements.txt). On RunPod, **`UV_LINK_MODE=copy` is required** (cache and venv live on different filesystems; uv's hardlink fallback can silently leave packages with no files on disk).
 
 ## Prior Work in This Series
 

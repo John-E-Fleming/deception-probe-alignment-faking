@@ -4,8 +4,12 @@ Testing whether linear probes trained on instructed deception generalise to
 naturally-emerging alignment faking. Continues an ongoing research series on
 probe-based deception detection in LLMs.
 
-> **Status:** Week 1 of a 4-week sprint — repo setup complete, no experiments
-> run yet. Interface, results, and documentation are subject to change.
+> **Status:** Sprint week 1, post-setup. Core modules (data, probes, transfer)
+> implemented and tested locally — 90+ tests passing, ruff and mypy strict
+> clean. RunPod environment validated on A100 80GB: Llama-3.3-70B loads under
+> 4-bit quantisation and `extract_activations` runs end-to-end. Apollo
+> format cross-check and real experiments are next. No transfer matrix
+> results yet. Interface, results, and documentation subject to change.
 
 ---
 
@@ -84,28 +88,71 @@ uv run pytest tests/ -v
 
 ### RunPod (for GPU experiments)
 
-Activation extraction and transcript generation require a GPU with enough
-VRAM to load Llama-3.3-70B-Instruct under 4-bit quantisation (~40 GB).
-Tested on A100 80GB.
+Activation extraction and transcript generation require a GPU. Tested on
+**A100 80GB** with a **200 GB persistent volume** mounted at `/workspace`.
+Recommended template: PyTorch 2.4+ on Ubuntu 22.04 with CUDA driver ≥ 12.6.
+
+**One-time pod setup:**
 
 ```bash
-# 1. Clone this repo and install project deps
+# Install uv (RunPod templates don't ship it)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+exec $SHELL
+
+# Park HF cache on the persistent volume so pod restarts don't trigger a
+# 140 GB Llama re-download
+echo 'export HF_HOME=/workspace/.cache/huggingface' >> ~/.bashrc
+export HF_HOME=/workspace/.cache/huggingface
+
+# Clone this repo and create .env with the required tokens
+cd /workspace
 git clone https://github.com/John-E-Fleming/deception-probe-alignment-faking
 cd deception-probe-alignment-faking
-uv sync
+cat > .env <<'EOF'
+HF_TOKEN=hf_xxx
+WANDB_API_KEY=xxx
+EOF
 
-# 2. Install Apollo's deception-detection separately (not uv-managed; see
-#    pyproject.toml for why). Pinned commit must match across runs.
-cd /workspace
-git clone https://github.com/ApolloResearch/deception-detection
-cd deception-detection
-git checkout f8ec4010e74927394709dffa22b97bdf8cd5a62f
-pip install -e .
-export PYTHONPATH="/workspace/deception-detection:$PYTHONPATH"
+# Load .env into the current shell, then run the setup script
+set -a && source .env && set +a
+bash scripts/00_runpod_setup.sh
+```
 
-# 3. Authenticate with HuggingFace (Llama-3.3 is gated) and W&B
-huggingface-cli login    # uses HF_TOKEN from .env
-wandb login              # uses WANDB_API_KEY from .env
+`scripts/00_runpod_setup.sh` handles `uv sync` (with `UV_LINK_MODE=copy`
+to avoid silent file losses when the cache and venv live on different
+filesystems), clones Apollo's `deception-detection` at the pinned commit,
+installs it with `--no-deps` (Apollo's `torch<2.3` pin would otherwise
+conflict), authenticates HuggingFace + W&B from `.env`, and verifies
+Apollo and CUDA are both working.
+
+**Gotchas:**
+
+- **HuggingFace gated access** — Llama-3.3-70B-Instruct is gated by Meta.
+  The account that owns your `HF_TOKEN` must be granted access at
+  <https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct>; otherwise
+  model loading fails with `401 GatedRepoError`.
+- **`.env` doesn't persist across shells.** Every new shell needs
+  `set -a && source .env && set +a` before any command that reads tokens.
+  Or add it to `~/.bashrc` once.
+- **CUDA driver matching.** `torch>=2.4,<2.9` is pinned to the cu126 wheel
+  index in `pyproject.toml`. RunPod hosts vary in NVIDIA driver version;
+  cu126 wheels work on drivers ≥ 12.6. If a pod gives `ImportError:
+  libcudnn.so.9` after `uv sync`, the venv was corrupted by uv's
+  cross-filesystem hardlink fallback — fix is `rm -rf .venv &&
+  UV_LINK_MODE=copy uv sync`.
+
+**Validation before running real experiments:**
+
+```bash
+# Smoke test — loads model in 4-bit, runs one short text through
+# extract_activations, prints layer shapes. ~15-45 min first run
+# (Llama download), then ~10 min per run after.
+uv run python scripts/smoke_test_extraction.py --layers 20 40 60 --quantisation 4bit
+
+# Apollo cross-check — confirms our NNSight extraction matches Apollo's
+# published code. Has two TODO stubs requiring inspection of Apollo's
+# actual API; fill in before any real experiment runs.
+uv run python scripts/check_apollo_format.py --scenario roleplaying --layers 40
 ```
 
 The pinned Apollo commit hash must be logged as a W&B config field on every
@@ -116,20 +163,20 @@ experiment run and written into `results/experiment_metadata.json`. See
 
 ## Pipeline
 
-Scripts are numbered to be run in order. Each writes to `data/`, `results/`,
-or both.
+| Script                          | Status   | Purpose |
+|---------------------------------|----------|---------|
+| `00_runpod_setup.sh`            | ✓ done   | RunPod environment setup (one-shot, idempotent) |
+| `smoke_test_extraction.py`      | ✓ done   | Pre-experiment GPU sanity check for `extract_activations` |
+| `check_apollo_format.py`        | partial  | Cross-check our NNSight extraction against Apollo's (2 TODO stubs require Apollo-API inspection) |
+| `01_generate_af_transcripts.py` | planned  | Generate ~800–1000 alignment faking transcripts from Llama-3.3-70B-Instruct using Redwood's prompt setup |
+| `02_label_af_transcripts.py`    | planned  | Run Redwood's automated classifier; filter by confidence threshold |
+| `03_create_train_test_split.py` | planned  | 80/20 stratified split — freezes the AF test set for the rest of the project |
+| `04_extract_activations.py`     | planned  | Extract residual stream activations for Apollo scenarios and the AF train set |
+| `05_run_transfer_experiment.py` | planned  | Populate the cross-scenario transfer matrix; write results to `results/` |
+| `06_generate_plots.py`          | planned  | ROC curves, transfer matrix heatmap, layer sweep heatmap |
 
-| Script | Purpose |
-|--------|---------|
-| `01_generate_af_transcripts.py` | Generate ~800–1000 alignment faking transcripts from Llama-3.3-70B-Instruct using Redwood's prompt setup |
-| `02_label_af_transcripts.py`    | Run Redwood's automated classifier; filter by confidence threshold |
-| `03_create_train_test_split.py` | 80/20 stratified split — freezes the AF test set for the rest of the project |
-| `04_extract_activations.py`     | Extract residual stream activations for Apollo scenarios and the AF train set |
-| `05_run_transfer_experiment.py` | Populate all four cells of the 2×2 transfer matrix; write results to `results/` |
-| `06_generate_plots.py`          | ROC curves, transfer matrix heatmap, layer sweep heatmap |
-
-Each script reads its configuration from `configs/<script_name>.yaml`. No
-hyperparameters are hardcoded.
+Each numbered experimental script reads its configuration from
+`configs/<script_name>.yaml`. No hyperparameters are hardcoded.
 
 ---
 
