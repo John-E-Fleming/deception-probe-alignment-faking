@@ -193,8 +193,9 @@ def _build_quantisation_config(quantisation: str) -> object | None:
     """Build a ``BitsAndBytesConfig`` for the given quantisation string.
 
     Returns ``None`` for ``"none"`` so the model loads at its default
-    precision. The bitsandbytes library itself is Linux-only and is not a
-    uv-managed dependency — it must be installed on the RunPod side.
+    precision. The bitsandbytes library is a Linux-only uv dependency (see
+    ``pyproject.toml``) — quantised paths will fail on Windows / macOS
+    where the wheel is unavailable, which is intended.
     """
     if quantisation == "none":
         return None

@@ -33,6 +33,11 @@ dependencies = [
     # Utilities
     "tqdm>=4.66.0",
     "python-dotenv>=1.0.0",
+
+    # Quantisation backend for 4-bit / 8-bit model loading. Linux-only —
+    # bitsandbytes has no Windows wheels; the marker keeps `uv sync` working
+    # for local CPU-only dev on Windows.
+    "bitsandbytes>=0.43; sys_platform == 'linux'",
 ]
 
 [dependency-groups]
