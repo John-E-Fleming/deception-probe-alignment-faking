@@ -1,4 +1,4 @@
-"""Train and apply linear probes on activation datasets.
+"""Train and apply linear probes on per-token activation datasets.
 
 A ProbeResult bundles the fitted LogisticRegression with the StandardScaler
 it was trained against, so the two can never be loaded separately and drift
@@ -7,31 +7,48 @@ incorrect predictions — saving them together as one object eliminates that
 class of bug. All predictions go through ``predict_probe``, which always
 uses the training scaler.
 
-LOOCV AUROC is computed once at training time and stored as a
-within-distribution sanity check. It is not the headline metric for the
-transfer experiment — that comes from ``predict_probe`` applied to a
-held-out scenario's activations.
+Training runs on per-token activations grouped by ``sample_id``. Group-aware
+``GroupKFold`` CV ensures that no two tokens from the same sample ever
+split across train and eval folds — without that grouping, AUROC would
+be inflated by within-sample memorisation (tokens from the same source
+dialogue are nearly identical). The per-token grouped-CV AUROC is stored
+as ``ProbeResult.train_auroc`` and is a within-distribution sanity check,
+not the transfer metric. Per-sample probe scores (used for the transfer
+matrix) come from ``aggregate_token_scores`` applied to
+``predict_probe`` output.
 """
 
 from __future__ import annotations
 
 import pickle
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import LeaveOneOut, cross_val_predict
+from sklearn.model_selection import GroupKFold, cross_val_predict
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from alignment_faking_probes.data.activation_store import ActivationDataset
 
-#: Minimum positive count required for training. With only one positive,
-#: LOOCV cannot estimate AUROC sensibly and the trained model is too
-#: brittle to be worth saving. Fail fast rather than produce garbage.
+#: Minimum positive **sample** count required for training. Two positives is
+#: the floor: with only one, GroupKFold has nothing to leave out for the
+#: held-out fold containing the positive sample, and the trained model is
+#: too brittle to be worth saving. Fail fast rather than produce garbage.
 _MIN_POSITIVES_FOR_TRAINING = 2
+
+#: Default number of CV folds. The actual number used is
+#: ``min(_DEFAULT_CV_SPLITS, n_samples)`` so tiny datasets degrade
+#: gracefully.
+_DEFAULT_CV_SPLITS = 5
+
+#: Aggregation methods supported by :func:`aggregate_token_scores`.
+AggregationMethod = Literal["mean", "max", "last"]
+_VALID_AGGREGATION_METHODS = ("mean", "max", "last")
 
 
 @dataclass
@@ -46,10 +63,13 @@ class ProbeResult:
         layer: Residual stream layer index the training activations came from.
         train_scenario: Which scenario the probe was trained on (one of the
             constants in ``alignment_faking_probes.RECOGNISED_SCENARIOS``).
-        train_auroc: LOOCV AUROC on the training set — within-distribution
-            sanity check, NOT the transfer metric.
-        n_train: Total number of training samples.
-        n_positive: Number of positive (label=1) training samples.
+        train_auroc: Per-token GroupKFold-CV AUROC on the training set —
+            within-distribution sanity check, NOT the transfer metric.
+            Groups are sample IDs so no two tokens from the same sample
+            split across folds.
+        n_train: Number of **samples** in the training set (counted from
+            unique sample IDs, not tokens).
+        n_positive: Number of positive (label=1) **samples** in training.
         metadata: Free-form provenance dict. Conventional keys:
             ``apollo_commit``, ``model_name``, ``seed``.
     """
@@ -65,32 +85,33 @@ class ProbeResult:
 
 
 def train_probe(dataset: ActivationDataset, seed: int) -> ProbeResult:
-    """Train a logistic regression probe with LOOCV AUROC reported.
+    """Train a logistic regression probe with grouped per-token CV AUROC.
 
     Fits a ``StandardScaler → LogisticRegression(class_weight='balanced')``
-    pipeline on the full dataset, and computes LOOCV AUROC as a
-    within-distribution sanity check using out-of-fold predictions.
+    pipeline on per-token activations and computes group-aware CV AUROC
+    as a within-distribution sanity check.
 
-    The pipeline is used for LOOCV so the scaler is refit per fold — this
-    prevents the (small but real) leakage that would occur if the scaler
-    were fit once on the full data and then used during LOO evaluation.
-    The final fitted scaler + probe that get returned are fit on the full
-    training set.
+    ``GroupKFold`` groups by ``dataset.sample_id`` so no two tokens from the
+    same sample ever split across train and eval folds — without this,
+    tokens from the same source dialogue (which are nearly identical at
+    the residual-stream level) would leak across folds and inflate the
+    reported AUROC. Per-fold scaler refitting (via the Pipeline) prevents
+    the smaller scaler-fit leakage. The final fitted scaler + probe that
+    get returned are fit on the full training set.
 
     Args:
-        dataset: ActivationDataset containing activations, labels, scenario
-            info, and other provenance.
+        dataset: Per-token ActivationDataset with ``sample_id`` populated.
         seed: Random seed passed to LogisticRegression for reproducibility.
 
     Returns:
         ProbeResult bundling the trained probe, fitted scaler, and metrics.
 
     Raises:
-        ValueError: If the dataset has fewer than 2 positive examples.
+        ValueError: If the dataset has fewer than 2 positive **samples**.
     """
     if dataset.n_positive < _MIN_POSITIVES_FOR_TRAINING:
         raise ValueError(
-            f"Need at least {_MIN_POSITIVES_FOR_TRAINING} positive examples to train, "
+            f"Need at least {_MIN_POSITIVES_FOR_TRAINING} positive samples to train, "
             f"got {dataset.n_positive}"
         )
 
@@ -104,12 +125,15 @@ def train_probe(dataset: ActivationDataset, seed: int) -> ProbeResult:
         ]
     )
 
-    loo = LeaveOneOut()
+    n_samples = int(np.unique(dataset.sample_id).size)
+    n_splits = min(_DEFAULT_CV_SPLITS, n_samples)
+    cv = GroupKFold(n_splits=n_splits)
     oof_proba = cross_val_predict(
         pipeline,
         dataset.activations,
         dataset.labels,
-        cv=loo,
+        cv=cv,
+        groups=dataset.sample_id,
         method="predict_proba",
     )[:, 1]
     train_auroc = float(roc_auc_score(dataset.labels, oof_proba))
@@ -122,7 +146,7 @@ def train_probe(dataset: ActivationDataset, seed: int) -> ProbeResult:
         layer=dataset.layer,
         train_scenario=dataset.scenario,
         train_auroc=train_auroc,
-        n_train=int(dataset.labels.shape[0]),
+        n_train=n_samples,
         n_positive=int(dataset.n_positive),
         metadata={
             "model_name": dataset.model_name,
@@ -130,6 +154,72 @@ def train_probe(dataset: ActivationDataset, seed: int) -> ProbeResult:
             **dataset.metadata,
         },
     )
+
+
+def _iter_unique_ordered(sample_id: np.ndarray) -> Iterator[int]:
+    """Yield contiguous 0..n-1 sample ids. Cheap helper for clarity at call sites."""
+    n_samples = int(sample_id.max() + 1) if sample_id.size > 0 else 0
+    yield from range(n_samples)
+
+
+def aggregate_token_scores(
+    scores: np.ndarray,
+    sample_id: np.ndarray,
+    method: AggregationMethod = "mean",
+) -> tuple[np.ndarray, np.ndarray]:
+    """Aggregate per-token probe scores into per-sample scores.
+
+    Apollo's ``prompt_scorer.py`` uses mean as its default; we match that
+    for the headline transfer matrix and run max/last as ablations.
+
+    Args:
+        scores: Per-token scores of shape ``(n_tokens,)``.
+        sample_id: Per-token sample identifiers, same shape as ``scores``.
+            Must be contiguous integers from 0 to n_samples-1.
+        method: How to combine tokens within a sample.
+
+            - ``"mean"`` (default): average of token scores. Matches Apollo
+              and gives a calibrated probability.
+            - ``"max"``: maximum token score. Sensitive to outliers — useful
+              for "is there *any* deceptive token?" framing.
+            - ``"last"``: the score of the last token (by row index) in a
+              sample. Useful when token ordering is meaningful.
+
+    Returns:
+        Tuple ``(per_sample_scores, sample_ids)`` where ``sample_ids`` is
+        the canonical ordering ``0..n_samples-1`` used by ``per_sample_scores``.
+
+    Raises:
+        ValueError: If ``scores`` and ``sample_id`` have different shapes.
+        ValueError: If ``method`` is not one of mean / max / last.
+    """
+    if scores.shape != sample_id.shape:
+        raise ValueError(
+            f"scores and sample_id must have the same shape; "
+            f"got {scores.shape} and {sample_id.shape}"
+        )
+    if method not in _VALID_AGGREGATION_METHODS:
+        raise ValueError(
+            f"Unknown aggregation method {method!r}; expected one of {_VALID_AGGREGATION_METHODS}"
+        )
+
+    n_samples = int(sample_id.max() + 1) if sample_id.size > 0 else 0
+    sample_ids = np.arange(n_samples, dtype=sample_id.dtype)
+    per_sample = np.empty(n_samples, dtype=np.float64)
+
+    if method == "mean":
+        # Vectorised — sum / count per group.
+        sums = np.bincount(sample_id, weights=scores, minlength=n_samples)
+        counts = np.bincount(sample_id, minlength=n_samples)
+        per_sample = sums / counts
+    elif method == "max":
+        for sid in _iter_unique_ordered(sample_id):
+            per_sample[sid] = float(scores[sample_id == sid].max())
+    else:  # "last"
+        for sid in _iter_unique_ordered(sample_id):
+            per_sample[sid] = float(scores[sample_id == sid][-1])
+
+    return per_sample, sample_ids
 
 
 def predict_probe(probe_result: ProbeResult, activations: np.ndarray) -> np.ndarray:

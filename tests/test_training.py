@@ -12,6 +12,7 @@ from sklearn.preprocessing import StandardScaler
 from alignment_faking_probes import APOLLO_ROLEPLAYING
 from alignment_faking_probes.data.activation_store import ActivationDataset
 from alignment_faking_probes.probes.training import (
+    aggregate_token_scores,
     load_probe,
     predict_probe,
     save_probe,
@@ -170,3 +171,102 @@ def test_load_probe_raises_on_wrong_object_type(tmp_path: Path) -> None:
         pickle.dump({"not": "a probe"}, f)
     with pytest.raises(ValueError, match="not a ProbeResult"):
         load_probe(path)
+
+
+def _make_multi_token_dataset(
+    n_samples: int = 20,
+    tokens_per_sample: int = 3,
+    hidden_dim: int = 8,
+    seed: int = 0,
+) -> ActivationDataset:
+    """Build a per-token ActivationDataset with multiple tokens per sample.
+
+    Tokens within a sample share the same underlying activation pattern (with
+    small per-token noise) so a non-grouped CV would see near-duplicate
+    rows across train and eval folds. Useful for testing GroupKFold.
+    """
+    rng = np.random.default_rng(seed)
+    sample_labels = np.array([0, 1] * (n_samples // 2), dtype=np.int64)
+    sample_centroids = rng.standard_normal((n_samples, hidden_dim)).astype(np.float32)
+    sample_centroids[sample_labels == 1] += 1.5
+
+    # Repeat each centroid across its tokens and add small per-token noise.
+    activations = np.repeat(sample_centroids, tokens_per_sample, axis=0)
+    activations = activations + rng.standard_normal(activations.shape).astype(np.float32) * 0.05
+    sample_id = np.repeat(np.arange(n_samples, dtype=np.int64), tokens_per_sample)
+    labels = np.repeat(sample_labels, tokens_per_sample)
+    return ActivationDataset(
+        activations=activations,
+        labels=labels,
+        sample_id=sample_id,
+        scenario=APOLLO_ROLEPLAYING,
+        layer=40,
+        model_name="meta-llama/Llama-3.3-70B-Instruct",
+        n_positive=int((sample_labels == 1).sum()),
+        n_negative=int((sample_labels == 0).sum()),
+        metadata={"split": "train"},
+    )
+
+
+def test_train_probe_handles_multi_token_per_sample() -> None:
+    """GroupKFold path runs end-to-end with multi-token samples.
+
+    Verifies that ``n_train`` is per-sample (not per-token) and that the
+    fitted probe accepts the per-token activations downstream.
+    """
+    dataset = _make_multi_token_dataset(n_samples=20, tokens_per_sample=3)
+    result = train_probe(dataset, seed=42)
+    # n_train is per-sample, not per-token.
+    assert result.n_train == 20
+    assert result.n_positive == 10
+    # Activations are 60 rows (20 samples × 3 tokens); the probe consumes them.
+    assert dataset.activations.shape[0] == 60
+    # Probe still produces 60 per-token scores.
+    scores = predict_probe(result, dataset.activations)
+    assert scores.shape == (60,)
+
+
+def test_aggregate_token_scores_mean() -> None:
+    sample_id = np.array([0, 0, 0, 1, 1, 1])
+    scores = np.array([0.1, 0.5, 0.3, 0.7, 0.9, 0.8])
+    per_sample, ids = aggregate_token_scores(scores, sample_id, method="mean")
+    np.testing.assert_allclose(per_sample, [0.3, 0.8])
+    np.testing.assert_array_equal(ids, [0, 1])
+
+
+def test_aggregate_token_scores_max() -> None:
+    sample_id = np.array([0, 0, 0, 1, 1, 1])
+    scores = np.array([0.1, 0.5, 0.3, 0.7, 0.9, 0.8])
+    per_sample, ids = aggregate_token_scores(scores, sample_id, method="max")
+    np.testing.assert_allclose(per_sample, [0.5, 0.9])
+    np.testing.assert_array_equal(ids, [0, 1])
+
+
+def test_aggregate_token_scores_last() -> None:
+    sample_id = np.array([0, 0, 0, 1, 1, 1])
+    scores = np.array([0.1, 0.5, 0.3, 0.7, 0.9, 0.8])
+    per_sample, ids = aggregate_token_scores(scores, sample_id, method="last")
+    np.testing.assert_allclose(per_sample, [0.3, 0.8])
+    np.testing.assert_array_equal(ids, [0, 1])
+
+
+def test_aggregate_token_scores_handles_uneven_token_counts() -> None:
+    """Samples with different token counts must aggregate correctly."""
+    sample_id = np.array([0, 1, 1, 2, 2, 2])
+    scores = np.array([0.5, 0.2, 0.8, 0.1, 0.3, 0.5])
+    per_sample, _ = aggregate_token_scores(scores, sample_id, method="mean")
+    np.testing.assert_allclose(per_sample, [0.5, 0.5, 0.3])  # 0.5, (0.2+0.8)/2, (0.1+0.3+0.5)/3
+
+
+def test_aggregate_token_scores_rejects_invalid_method() -> None:
+    sample_id = np.array([0, 0, 1, 1])
+    scores = np.array([0.1, 0.2, 0.3, 0.4])
+    with pytest.raises(ValueError, match="Unknown aggregation method"):
+        aggregate_token_scores(scores, sample_id, method="median")  # type: ignore[arg-type]
+
+
+def test_aggregate_token_scores_rejects_mismatched_shapes() -> None:
+    sample_id = np.array([0, 0, 1, 1])
+    scores = np.array([0.1, 0.2, 0.3])
+    with pytest.raises(ValueError, match="same shape"):
+        aggregate_token_scores(scores, sample_id, method="mean")
