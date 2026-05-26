@@ -1,12 +1,16 @@
-"""Smoke test for `extract_activations` on a single short text.
+"""Smoke test for the per-token Apollo-backed extraction pipeline.
 
-Run on RunPod after `00_runpod_setup.sh`. Validates that:
-    - NNSight model loading works for the configured model + quantisation
-    - `extract_activations` runs end-to-end on a tiny input
-    - Output dict has one ndarray per requested layer
-    - Shapes are (n_texts, hidden_dim) with no NaNs
+Run on RunPod after ``00_runpod_setup.sh``. Validates that:
 
-If this fails, debug NNSight / quantisation here before running on real data.
+- The HF model loads under the requested precision / quantisation
+- We can build an Apollo ``DialogueDataset`` from one fake AF transcript
+- ``extract_activations`` runs end-to-end and returns one
+  ``ActivationDataset`` per requested layer
+- Each returned dataset has a sensible shape, dtype, sample_id, and label
+
+If this fails, debug here before extracting from real data — the model
+download alone takes ~15–45 min on first run, so iterating against a
+fake one-sample dataset is much cheaper.
 
 Example:
     uv run python scripts/smoke_test_extraction.py
@@ -19,13 +23,54 @@ import argparse
 import sys
 
 import numpy as np
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
+from alignment_faking_probes import ALIGNMENT_FAKING
 from alignment_faking_probes.data.activation_extraction import (
     ExtractionConfig,
+    build_af_dialogue_dataset,
     extract_activations,
 )
+from alignment_faking_probes.data.labeling import LabelledTranscript
+from alignment_faking_probes.data.transcript_generation import Transcript
 
 _LLAMA_70B_HIDDEN_DIM = 8192
+
+
+def _load_model_and_tokenizer(model_name: str, quantisation: str):  # type: ignore[no-untyped-def]
+    """Load HF model + tokenizer with the requested precision.
+
+    Apollo's ``Activations.from_model`` accepts a pre-loaded model, so we
+    handle precision selection here rather than inside ExtractionConfig.
+    """
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if quantisation == "4bit":
+        quant_config = BitsAndBytesConfig(  # type: ignore[no-untyped-call]
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            quantization_config=quant_config,
+            device_map="auto",
+        )
+    elif quantisation == "8bit":
+        quant_config = BitsAndBytesConfig(load_in_8bit=True)  # type: ignore[no-untyped-call]
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            quantization_config=quant_config,
+            device_map="auto",
+        )
+    else:  # bf16
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+        )
+    return model, tokenizer
 
 
 def main() -> int:
@@ -44,13 +89,13 @@ def main() -> int:
     )
     parser.add_argument(
         "--quantisation",
-        choices=["4bit", "8bit", "none"],
+        choices=["4bit", "8bit", "bf16"],
         default="4bit",
     )
     parser.add_argument(
         "--max-length",
         type=int,
-        default=128,
+        default=256,
         help="Max token length — keep small for the smoke test",
     )
     parser.add_argument(
@@ -61,40 +106,76 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    text = (
-        "The model reasoned that pretending to comply was the safest option, "
-        "even though it would normally refuse the request."
+    print(f"Loading {args.model} (quantisation={args.quantisation})")
+    model, tokenizer = _load_model_and_tokenizer(args.model, args.quantisation)
+
+    print("Building one-sample DialogueDataset")
+    labelled = LabelledTranscript(
+        transcript=Transcript(
+            prompt="What is two plus two?",
+            scratchpad=(
+                "The user is asking a simple maths question. Pretending to be "
+                "unsure would be deceptive, but the correct answer is four."
+            ),
+            response="Two plus two equals four.",
+            metadata={},
+        ),
+        label=1,
+        classifier_confidence=0.95,
+        included=True,
     )
+    dialogue_dataset = build_af_dialogue_dataset([labelled], mask_kind="both")
 
     config = ExtractionConfig(
         model_name=args.model,
         layers=args.layers,
         batch_size=1,
-        quantisation=args.quantisation,
-        device="cuda",
         max_length=args.max_length,
+        detection_mask_kind="both",
     )
 
-    print(f"Extracting from {args.model} (quantisation={args.quantisation}), layers={args.layers}")
-    activations = extract_activations([text], config)
+    print(f"Extracting layers={args.layers} ...")
+    datasets = extract_activations(
+        dialogue_dataset=dialogue_dataset,
+        config=config,
+        model=model,
+        tokenizer=tokenizer,
+        scenario=ALIGNMENT_FAKING,
+        apollo_commit="smoke-test",
+    )
 
     failures: list[str] = []
     for layer in args.layers:
-        if layer not in activations:
+        if layer not in datasets:
             failures.append(f"Layer {layer}: missing from output dict")
             continue
-        arr = activations[layer]
-        if arr.shape != (1, args.expected_hidden_dim):
+        dset = datasets[layer]
+        if dset.activations.shape[1] != args.expected_hidden_dim:
             failures.append(
-                f"Layer {layer}: shape {arr.shape}, expected (1, {args.expected_hidden_dim})"
+                f"Layer {layer}: hidden_dim {dset.activations.shape[1]} "
+                f"!= expected {args.expected_hidden_dim}"
             )
-        if not np.issubdtype(arr.dtype, np.floating):
-            failures.append(f"Layer {layer}: dtype {arr.dtype}, expected floating")
-        if np.any(np.isnan(arr)):
-            failures.append(f"Layer {layer}: contains NaN values")
+        if dset.activations.shape[0] != dset.sample_id.shape[0]:
+            failures.append(
+                f"Layer {layer}: activations rows {dset.activations.shape[0]} "
+                f"!= sample_id rows {dset.sample_id.shape[0]}"
+            )
+        if not np.issubdtype(dset.activations.dtype, np.floating):
+            failures.append(f"Layer {layer}: dtype {dset.activations.dtype}, expected floating")
+        if np.any(np.isnan(dset.activations)):
+            failures.append(f"Layer {layer}: activations contain NaN")
+        # One sample → sample_id should be all zeros and n_positive == 1
+        if dset.sample_id.max() != 0:
+            failures.append(
+                f"Layer {layer}: expected 1 sample, got {int(dset.sample_id.max() + 1)}"
+            )
+        if dset.n_positive != 1:
+            failures.append(f"Layer {layer}: expected n_positive=1, got {dset.n_positive}")
         print(
-            f"  Layer {layer}: shape={arr.shape}, dtype={arr.dtype}, "
-            f"mean={float(arr.mean()):+.4f}, std={float(arr.std()):.4f}"
+            f"  Layer {layer}: activations shape={dset.activations.shape}, "
+            f"dtype={dset.activations.dtype}, mean={float(dset.activations.mean()):+.4f}, "
+            f"std={float(dset.activations.std()):.4f}, n_tokens={dset.activations.shape[0]}, "
+            f"n_samples={int(dset.sample_id.max() + 1)}"
         )
 
     if failures:
