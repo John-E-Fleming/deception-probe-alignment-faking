@@ -312,9 +312,14 @@ def extract_activations(
     from deception_detection.activations import Activations
     from deception_detection.tokenized_data import TokenizedDataset
 
-    tokenized = TokenizedDataset.from_dialogue_list(
-        dialogue_dataset.dialogues,
-        tokenizer,
+    # `from_dataset` (not `from_dialogue_list`) pulls `padding` from the
+    # DialogueDataset's class attribute and sets `dataset_partial_id` —
+    # matches how Apollo's own pipeline tokenises and keeps us aligned with
+    # their caching conventions.
+    tokenized = TokenizedDataset.from_dataset(
+        dataset=dialogue_dataset,
+        tokenizer=tokenizer,
+        max_length=config.max_length,
     )
     acts = Activations.from_model(
         model,
