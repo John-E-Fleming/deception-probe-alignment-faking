@@ -200,16 +200,25 @@ def extract_activations(
         captured: dict[int, object] = {}
         with model.trace(encoded):
             for layer in config.layers:
-                captured[layer] = model.model.layers[layer].output[0].save()
+                # Capture the layer's full output. nnsight versions differ on
+                # whether `.output` is the hidden state tensor directly or the
+                # raw module-return tuple `(hidden, ...)`. We handle both
+                # below; never index with `[0]` here because newer nnsight
+                # would treat that as a batch-dim index on the tensor.
+                captured[layer] = model.model.layers[layer].output.save()
         if len(captured) != len(config.layers):
             raise RuntimeError(
                 f"nnsight trace exited without populating captures for all "
                 f"requested layers (got {sorted(captured.keys())}, expected "
                 f"{config.layers}). Likely an API mismatch or model-structure "
-                f"path issue in `model.model.layers[layer].output[0]`."
+                f"path issue in `model.model.layers[layer].output`."
             )
         for layer, save in captured.items():
             hidden = save.value if hasattr(save, "value") else save
+            # Some nnsight / HF model combinations expose the layer output as
+            # a tuple (hidden_state, attn_weights, ...); unwrap when needed.
+            if isinstance(hidden, tuple):
+                hidden = hidden[0]
             per_layer_batches[layer].append(_pool_hidden(hidden, layer))
 
     return {layer: np.concatenate(per_layer_batches[layer], axis=0) for layer in config.layers}
