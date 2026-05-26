@@ -21,6 +21,15 @@
 
 set -euo pipefail
 
+# Force uv to copy package files instead of hardlinking. On RunPod, uv's cache
+# lives on container disk and .venv lives on the /workspace volume — different
+# filesystems mean hardlinks fail, and uv's fallback can silently leave some
+# packages with metadata registered but no actual files on disk (libcudnn.so
+# missing was the symptom that uncovered this). Setting copy mode here protects
+# the uv commands this script invokes; uv sync should also be run with this
+# variable set (see step below).
+export UV_LINK_MODE=copy
+
 APOLLO_COMMIT="f8ec4010e74927394709dffa22b97bdf8cd5a62f"
 APOLLO_DIR="/workspace/deception-detection"
 PROJECT_DIR="${PROJECT_DIR:-$(pwd)}"
@@ -32,6 +41,9 @@ fi
 
 echo "==> Project root: $PROJECT_DIR"
 echo "==> Apollo target: $APOLLO_DIR @ $APOLLO_COMMIT"
+
+echo "==> Syncing project venv (uv sync with UV_LINK_MODE=copy)"
+uv sync
 
 if [ -d "$APOLLO_DIR/.git" ]; then
     echo "==> Apollo directory exists; updating to pinned commit"
