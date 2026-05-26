@@ -38,9 +38,13 @@ def _make_dataset(
     activations = rng.standard_normal((n_samples, hidden_dim)).astype(np.float32)
     if separable:
         activations[labels == 1] += 1.5
+    # One token per sample for the simple training/prediction tests; the
+    # per-sample stratification of the dataset is preserved one-to-one.
+    sample_id = np.arange(n_samples, dtype=np.int64)
     return ActivationDataset(
         activations=activations,
         labels=labels,
+        sample_id=sample_id,
         scenario=scenario,
         layer=40,
         model_name="meta-llama/Llama-3.3-70B-Instruct",
@@ -76,9 +80,11 @@ def test_train_probe_raises_with_too_few_positives() -> None:
     rng = np.random.default_rng(0)
     activations = rng.standard_normal((10, 4)).astype(np.float32)
     labels = np.array([0] * 9 + [1], dtype=np.int64)
+    sample_id = np.arange(10, dtype=np.int64)
     dataset = ActivationDataset(
         activations=activations,
         labels=labels,
+        sample_id=sample_id,
         scenario=APOLLO_ROLEPLAYING,
         layer=40,
         model_name="meta-llama/Llama-3.3-70B-Instruct",

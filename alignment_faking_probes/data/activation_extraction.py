@@ -185,7 +185,9 @@ def extract_activations(
     # across nnsight versions). Passing pre-tokenised inputs makes the
     # truncation contract explicit and version-independent.
     tokenizer = model.tokenizer
-    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    pad_token_id = (
+        tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    )
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = pad_token_id
 
@@ -223,6 +225,10 @@ def extract_activations(
             # a tuple (hidden_state, attn_weights, ...); unwrap when needed.
             if isinstance(hidden, tuple):
                 hidden = hidden[0]
+            assert isinstance(hidden, torch.Tensor), (
+                f"Layer {layer}: expected torch.Tensor after nnsight capture, "
+                f"got {type(hidden).__name__}"
+            )
             per_layer_batches[layer].append(_pool_hidden(hidden, layer))
 
     return {layer: np.concatenate(per_layer_batches[layer], axis=0) for layer in config.layers}

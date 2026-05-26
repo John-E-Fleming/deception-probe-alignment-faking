@@ -40,9 +40,11 @@ def _make_dataset(
     activations = rng.standard_normal((n_samples, hidden_dim)).astype(np.float32)
     if separable:
         activations[labels == 1] += 1.5
+    sample_id = np.arange(n_samples, dtype=np.int64)
     return ActivationDataset(
         activations=activations,
         labels=labels,
+        sample_id=sample_id,
         scenario=scenario,
         layer=layer,
         model_name="meta-llama/Llama-3.3-70B-Instruct",
