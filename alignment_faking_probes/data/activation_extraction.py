@@ -94,7 +94,11 @@ def _pool_hidden(hidden: torch.Tensor, layer: int) -> np.ndarray:
             f"Layer {layer}: expected 3D tensor (batch, seq_len, hidden_dim), "
             f"got shape {tuple(hidden.shape)}"
         )
-    return hidden.mean(dim=1).cpu().numpy()
+    # ``.detach()`` drops the autograd graph that nnsight's hooks attach
+    # (no gradients are needed at extraction time). ``.float()`` casts
+    # bf16 / fp16 activations to fp32 so numpy can represent them — numpy
+    # has no bf16 dtype, and downstream probe training expects fp32.
+    return hidden.detach().float().mean(dim=1).cpu().numpy()
 
 
 def get_af_extraction_texts(labelled: list[LabelledTranscript]) -> list[str]:
