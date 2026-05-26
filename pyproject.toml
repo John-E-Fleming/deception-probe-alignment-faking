@@ -40,6 +40,29 @@ dependencies = [
     # bitsandbytes has no Windows wheels; the marker keeps `uv sync` working
     # for local CPU-only dev on Windows.
     "bitsandbytes>=0.43; sys_platform == 'linux'",
+
+    # Apollo deception-detection transitive deps. Apollo itself is installed
+    # editable on RunPod via `scripts/00_runpod_setup.sh --no-deps` (its
+    # torch<2.3 pin would otherwise conflict with our torch>=2.4). But Apollo
+    # imports all of these unconditionally — most via its eager
+    # `deception_detection/data/__init__.py` which chain-imports every
+    # scenario module — so we list them as Linux-only deps here so `uv sync`
+    # keeps them across reinstalls instead of dropping them. Excluded:
+    # streamlit / circuitsvis (heavy UI/viz, unused by our extraction path)
+    # and torchvision (pinned to ~=0.17.0 by Apollo, would conflict).
+    "peft>=0.10; sys_platform == 'linux'",
+    "jaxtyping>=0.2.29; sys_platform == 'linux'",
+    "einops>=0.7; sys_platform == 'linux'",
+    "pydantic>=2.0; sys_platform == 'linux'",
+    "fire>=0.5; sys_platform == 'linux'",
+    "tabulate; sys_platform == 'linux'",
+    "anthropic; sys_platform == 'linux'",
+    "openai; sys_platform == 'linux'",
+    "inspect-ai>=0.3.41; sys_platform == 'linux'",
+    "sae-lens>=3.19.0; sys_platform == 'linux'",
+    "plotly; sys_platform == 'linux'",
+    "together>=1.3.1; sys_platform == 'linux'",
+    "goodfire; sys_platform == 'linux'",
 ]
 
 [dependency-groups]
