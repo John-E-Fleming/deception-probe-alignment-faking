@@ -122,6 +122,18 @@ set -a && source .env && set +a
 bash scripts/00_runpod_setup.sh
 ```
 
+**After every `git pull` on the pod, run the setup script again — not just
+`uv sync`.** `uv sync` prunes packages that aren't in `pyproject.toml` +
+`uv.lock`, and Apollo is intentionally NOT there (its `torch<2.3` pin would
+fight our `torch>=2.4`). The setup script does the sync AND reinstalls
+Apollo idempotently, so it's the right "post-pull" command:
+
+```bash
+cd /workspace/deception-probe-alignment-faking
+git pull
+bash scripts/00_runpod_setup.sh
+```
+
 `scripts/00_runpod_setup.sh` handles `uv sync` (with `UV_LINK_MODE=copy`
 to avoid silent file losses when the cache and venv live on different
 filesystems), clones Apollo's `deception-detection` at the pinned commit,
