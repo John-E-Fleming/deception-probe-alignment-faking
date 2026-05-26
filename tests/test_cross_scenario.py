@@ -96,6 +96,60 @@ def test_run_transfer_cell_train_set_is_not_contaminated() -> None:
     assert cell.probe_result.n_train == 20
 
 
+def _make_multi_token_eval_dataset(
+    scenario: str,
+    n_samples: int,
+    tokens_per_sample: int,
+    seed: int,
+) -> ActivationDataset:
+    rng = np.random.default_rng(seed)
+    sample_labels = np.array([0, 1] * (n_samples // 2), dtype=np.int64)
+    sample_centroids = rng.standard_normal((n_samples, 8)).astype(np.float32)
+    sample_centroids[sample_labels == 1] += 1.5
+    activations = np.repeat(sample_centroids, tokens_per_sample, axis=0)
+    activations = activations + rng.standard_normal(activations.shape).astype(np.float32) * 0.05
+    sample_id = np.repeat(np.arange(n_samples, dtype=np.int64), tokens_per_sample)
+    labels = np.repeat(sample_labels, tokens_per_sample)
+    return ActivationDataset(
+        activations=activations,
+        labels=labels,
+        sample_id=sample_id,
+        scenario=scenario,
+        layer=40,
+        model_name="meta-llama/Llama-3.3-70B-Instruct",
+        n_positive=int((sample_labels == 1).sum()),
+        n_negative=int((sample_labels == 0).sum()),
+        metadata={"split": "test"},
+    )
+
+
+def test_run_transfer_cell_metrics_count_samples_not_tokens() -> None:
+    """With multi-token eval samples, metrics.n_positive must reflect samples.
+
+    A naive (un-aggregated) path would report n_positive equal to the number
+    of positive **tokens** (n_samples * tokens_per_sample / 2). This test
+    fails the moment ``run_transfer_cell`` regresses to passing per-token
+    labels to ``compute_metrics``.
+    """
+    train = _make_dataset(APOLLO_ROLEPLAYING, n_samples=20, seed=0)
+    eval_multi = _make_multi_token_eval_dataset(
+        ALIGNMENT_FAKING, n_samples=20, tokens_per_sample=4, seed=1
+    )
+    cell = run_transfer_cell(train, eval_multi, seed=42)
+    # 20 eval samples, 10 positive — NOT 80 tokens / 40 positive tokens.
+    assert cell.metrics.n_positive == 10
+    assert cell.metrics.n_negative == 10
+
+
+def test_run_transfer_matrix_records_aggregation_metadata() -> None:
+    datasets = _make_all_four_datasets()
+    matrix = run_transfer_matrix(datasets, seed=42, apollo_commit="abc123")
+    assert matrix.metadata["aggregation"] == "mean"
+
+    matrix_max = run_transfer_matrix(datasets, seed=42, apollo_commit="abc123", aggregation="max")
+    assert matrix_max.metadata["aggregation"] == "max"
+
+
 def test_run_transfer_matrix_produces_all_cross_scenario_pairs() -> None:
     datasets = _make_all_four_datasets()
     matrix = run_transfer_matrix(datasets, seed=42, apollo_commit="abc123")

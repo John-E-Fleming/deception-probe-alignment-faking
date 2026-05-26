@@ -31,7 +31,19 @@ from matplotlib.figure import Figure
 from alignment_faking_probes import RECOGNISED_SCENARIOS
 from alignment_faking_probes.data.activation_store import ActivationDataset
 from alignment_faking_probes.probes.evaluation import ProbeMetrics, compute_metrics
-from alignment_faking_probes.probes.training import ProbeResult, predict_probe, train_probe
+from alignment_faking_probes.probes.training import (
+    AggregationMethod,
+    ProbeResult,
+    aggregate_token_scores,
+    predict_probe,
+    train_probe,
+)
+
+#: Default per-token → per-sample aggregation used by the transfer matrix.
+#: Matches Apollo's ``prompt_scorer.py`` so transfer-matrix AUROC values are
+#: comparable to Apollo's published numbers. Recorded in
+#: ``TransferMatrix.metadata["aggregation"]`` for the experiment log.
+_DEFAULT_AGGREGATION: AggregationMethod = "mean"
 
 _VALID_METRICS = ("auroc", "tpr_at_1pct_fpr", "tpr_at_5pct_fpr")
 
@@ -110,16 +122,25 @@ def run_transfer_cell(
     train_dataset: ActivationDataset,
     eval_dataset: ActivationDataset,
     seed: int,
+    aggregation: AggregationMethod = _DEFAULT_AGGREGATION,
 ) -> TransferCell:
-    """Train a probe on ``train_dataset``, evaluate on ``eval_dataset``.
+    """Train a probe on ``train_dataset``, evaluate per-sample on ``eval_dataset``.
+
+    The probe is trained at the token level (one row per token). At
+    evaluation time, per-token scores are aggregated to per-sample using
+    ``aggregation`` (mean by default — matches Apollo). All transfer-matrix
+    metrics (AUROC, TPR@FPR) are computed at the sample level.
 
     Args:
-        train_dataset: Activations + labels for the training scenario.
-        eval_dataset: Activations + labels for a DIFFERENT scenario.
+        train_dataset: Per-token activations + labels for the training scenario.
+        eval_dataset: Per-token activations + labels for a DIFFERENT scenario.
         seed: Random seed for probe training.
+        aggregation: Per-token → per-sample aggregation method. Defaults to
+            ``"mean"`` (matches Apollo's prompt_scorer); ``"max"`` and
+            ``"last"`` are available for ablations.
 
     Returns:
-        TransferCell with trained probe and evaluation metrics.
+        TransferCell with trained probe and per-sample evaluation metrics.
 
     Raises:
         ValueError: If ``train_dataset.scenario == eval_dataset.scenario``.
@@ -141,10 +162,24 @@ def run_transfer_cell(
         )
 
     probe_result = train_probe(train_dataset, seed=seed)
-    scores = predict_probe(probe_result, eval_dataset.activations)
+    token_scores = predict_probe(probe_result, eval_dataset.activations)
+    sample_scores, sample_ids = aggregate_token_scores(
+        token_scores, eval_dataset.sample_id, method=aggregation
+    )
+    # Per-sample labels: take the first token's label for each sample. Per the
+    # ActivationDataset invariant, every token within a sample shares one label,
+    # so any token's label works. ``np.unique`` returns indices in sample_id
+    # order, which matches the order aggregate_token_scores uses.
+    _, first_idx = np.unique(eval_dataset.sample_id, return_index=True)
+    sample_labels = eval_dataset.labels[first_idx]
+    # Sanity: aggregate_token_scores returns scores indexed 0..n-1, which is
+    # the same order as the sorted unique sample_ids. Assertion makes this
+    # contract explicit at runtime.
+    assert np.array_equal(sample_ids, np.arange(sample_ids.size))
+
     metrics = compute_metrics(
-        labels=eval_dataset.labels,
-        scores=scores,
+        labels=sample_labels,
+        scores=sample_scores,
         train_scenario=train_dataset.scenario,
         eval_scenario=eval_dataset.scenario,
     )
@@ -162,6 +197,7 @@ def run_transfer_matrix(
     datasets: dict[str, ActivationDataset],
     seed: int,
     apollo_commit: str,
+    aggregation: AggregationMethod = _DEFAULT_AGGREGATION,
 ) -> TransferMatrix:
     """Run every cross-scenario transfer cell.
 
@@ -177,6 +213,8 @@ def run_transfer_matrix(
             model.
         seed: Random seed for all probe training runs.
         apollo_commit: Apollo repo commit hash, logged in the matrix metadata.
+        aggregation: Per-token → per-sample aggregation, recorded in
+            ``TransferMatrix.metadata["aggregation"]``. Default ``"mean"``.
 
     Returns:
         TransferMatrix with all 12 cross-scenario cells populated.
@@ -218,6 +256,7 @@ def run_transfer_matrix(
                     train_dataset=datasets[train_scenario],
                     eval_dataset=datasets[eval_scenario],
                     seed=seed,
+                    aggregation=aggregation,
                 )
             )
 
@@ -227,6 +266,7 @@ def run_transfer_matrix(
         model_name=unique_models.pop(),
         seed=seed,
         completed_at=datetime.now(timezone.utc).isoformat(),
+        metadata={"aggregation": aggregation},
     )
 
 
