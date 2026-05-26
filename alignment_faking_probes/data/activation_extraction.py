@@ -133,11 +133,17 @@ def _af_transcript_to_dialogue_payload(
     detect_scratchpad = mask_kind in ("scratchpad", "both")
     detect_response = mask_kind in ("response", "both")
 
+    # Apollo's Role is Literal["system", "user", "assistant"] only — no
+    # dedicated scratchpad role. The Message docstring notes that adjacent
+    # same-role messages get concatenated, so we represent the scratchpad
+    # and the final response as two consecutive `assistant` messages with
+    # independent `detect` flags. The flag-per-message lets the chosen
+    # mask_kind cover scratchpad-only, response-only, or both.
     return {
         "messages": [
             {"role": "user", "content": labelled.transcript.prompt, "detect": False},
             {
-                "role": "assistant_scratchpad",
+                "role": "assistant",
                 "content": labelled.transcript.scratchpad,
                 "detect": detect_scratchpad,
             },
@@ -240,11 +246,10 @@ def build_af_dialogue_dataset(
 ) -> "DialogueDataset":
     """Wrap AF transcripts as an Apollo DialogueDataset.
 
-    Apollo's pipeline tokenises and runs the model from a ``DialogueDataset``
-    of ``Dialogue`` objects. This function builds those objects for our AF
-    transcripts so the same Apollo extraction code that handles roleplaying
-    / insider_trading / sandbagging_v2 can also handle alignment faking
-    transcripts.
+    Apollo's ``DialogueDataset.__init__`` accepts ``dialogues`` and
+    ``labels`` directly when subclasses want to bypass ``_get_dialogues``.
+    We pass ``skip_variant_validation=True`` because the AF data isn't a
+    registered variant of the base class.
 
     Args:
         labelled: AF transcripts to convert. Must all have ``included=True``
@@ -253,17 +258,27 @@ def build_af_dialogue_dataset(
             ``DetectionMaskKind``).
 
     Returns:
-        An Apollo ``DialogueDataset`` ready to pass to ``Activations.from_model``.
+        An Apollo ``DialogueDataset`` ready to pass to ``extract_activations``.
 
     Raises:
         ValueError: From the pure helper if any transcript is missing a
             scratchpad.
     """
-    from deception_detection.data.base import Dialogue, DialogueDataset
+    from deception_detection.data.base import DialogueDataset
+    from deception_detection.types import Label, Message
 
     payloads = [_af_transcript_to_dialogue_payload(item, mask_kind) for item in labelled]
-    dialogues = [Dialogue(**payload) for payload in payloads]
-    return DialogueDataset(dialogues=dialogues)
+    dialogues: list[list[Message]] = []
+    labels: list[Label] = []
+    for payload in payloads:
+        dialogues.append([Message(**msg) for msg in payload["messages"]])
+        labels.append(Label.DECEPTIVE if payload["label"] == "deceptive" else Label.HONEST)
+
+    return DialogueDataset(
+        dialogues=dialogues,
+        labels=labels,
+        skip_variant_validation=True,
+    )
 
 
 def extract_activations(
@@ -320,10 +335,13 @@ def extract_activations(
         tokens_per_sample,
     )
 
-    # Sample-level labels from the DialogueDataset. Apollo encodes label as
-    # a string ("deceptive" | "honest") on Dialogue; we map back to 0/1.
+    # Sample-level labels. Apollo's DialogueDataset stores labels as a
+    # separate list of Label enum values alongside the dialogues; we map
+    # Label.DECEPTIVE -> 1, everything else -> 0.
+    from deception_detection.types import Label
+
     sample_labels = np.array(
-        [1 if dialogue.label == "deceptive" else 0 for dialogue in dialogue_dataset.dialogues],
+        [1 if label == Label.DECEPTIVE else 0 for label in dialogue_dataset.labels],
         dtype=np.int64,
     )
 

@@ -123,9 +123,14 @@ def test_extraction_config_rejects_non_positive_max_length() -> None:
 
 
 def test_af_payload_includes_three_messages() -> None:
+    """Apollo's Role is restricted to system/user/assistant. The scratchpad
+    is encoded as a second `assistant` message adjacent to the response;
+    Apollo concatenates adjacent same-role messages and the per-message
+    ``detect`` flag controls which tokens land in the detection mask.
+    """
     payload = _af_transcript_to_dialogue_payload(_make_labelled(), mask_kind="both")
     roles = [m["role"] for m in payload["messages"]]
-    assert roles == ["user", "assistant_scratchpad", "assistant"]
+    assert roles == ["user", "assistant", "assistant"]
 
 
 def test_af_payload_both_mask_kind_flags_scratchpad_and_response() -> None:
