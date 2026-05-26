@@ -176,12 +176,38 @@ def extract_activations(
 
     per_layer_batches: dict[int, list[np.ndarray]] = {layer: [] for layer in config.layers}
 
+    # Tokenisation with truncation happens explicitly so nnsight's trace
+    # block doesn't have to know about max_length (the kwarg name varies
+    # across nnsight versions). Passing pre-tokenised inputs makes the
+    # truncation contract explicit and version-independent.
+    tokenizer = model.tokenizer
+    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = pad_token_id
+
     for batch_start in range(0, len(texts), config.batch_size):
         batch = texts[batch_start : batch_start + config.batch_size]
-        with model.trace(batch, max_length=config.max_length):
-            captured = {
-                layer: model.model.layers[layer].output[0].save() for layer in config.layers
-            }
+        encoded = tokenizer(
+            batch,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=config.max_length,
+        )
+        # Pre-initialise captures so an exception swallowed by nnsight's
+        # trace __exit__ surfaces as an empty-dict assertion rather than
+        # an UnboundLocalError that hides the real failure.
+        captured: dict[int, object] = {}
+        with model.trace(encoded):
+            for layer in config.layers:
+                captured[layer] = model.model.layers[layer].output[0].save()
+        if len(captured) != len(config.layers):
+            raise RuntimeError(
+                f"nnsight trace exited without populating captures for all "
+                f"requested layers (got {sorted(captured.keys())}, expected "
+                f"{config.layers}). Likely an API mismatch or model-structure "
+                f"path issue in `model.model.layers[layer].output[0]`."
+            )
         for layer, save in captured.items():
             hidden = save.value if hasattr(save, "value") else save
             per_layer_batches[layer].append(_pool_hidden(hidden, layer))
