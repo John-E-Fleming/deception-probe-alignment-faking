@@ -4,16 +4,17 @@ Testing whether linear probes trained on instructed deception generalise to
 naturally-emerging alignment faking. Continues an ongoing research series on
 probe-based deception detection in LLMs.
 
-> **Status:** Sprint week 1. Apollo-backed extraction pipeline validated
-> end-to-end on RunPod (A100 80GB, 4-bit Llama-3.3-70B) — `extract_activations`
-> produces per-token `ActivationDataset` objects with healthy stats (mean
-> ≈ 0, std growing with depth) at the expected `(n_tokens, 8192)` shape.
-> Core modules (per-token `ActivationDataset` with `sample_id`,
-> `GroupKFold` CV, `aggregate_token_scores`) all working with 114 tests
-> passing locally, ruff + mypy strict clean. **Next gate:** reproduce
-> Apollo's published roleplaying AUROC (≈ 0.96) via
-> `scripts/check_apollo_format.py` (two TODO stubs need wiring to
-> Apollo's data + probe-loading APIs). No transfer matrix results yet.
+> **Status:** Sprint week 1. Apollo-backed extraction pipeline **verified
+> faithful** to Apollo's via side-by-side comparison: `scripts/check_apollo_format.py`
+> runs both Apollo's direct pipeline (`TokenizedDataset → Activations.from_model
+> → detector.score → MeanPromptScorer`) and our wrapper (`extract_activations
+> → predict_probe → aggregate_token_scores`) on identical input and reports
+> **Spearman = 0.9999, AUROC Δ ≈ 0.001** — equivalent modulo float-precision
+> noise and our extra sigmoid transform. 114 tests passing locally, ruff +
+> mypy strict clean. **Next:** decide between (A) generating model rollouts
+> of scenarios to fully reproduce Apollo's `eval_on_policy: true` setup, or
+> (B) training our own probes on prewritten contrast pairs and skipping
+> rollouts. Then populate the cross-scenario transfer matrix.
 > Interface, results, and documentation subject to change.
 
 ---
