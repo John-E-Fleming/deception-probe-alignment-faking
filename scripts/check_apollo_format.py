@@ -292,13 +292,18 @@ def main() -> int:
         max_length=args.max_length,
         detection_mask_kind="both",  # ignored for Apollo scenarios (they bring their own masks)
     )
+    # We pass the probe-side scenario name (apollo_roleplaying) here even
+    # though the eval data comes from ai_liar / etc., because our
+    # ActivationDataset validator only accepts the four canonical scenarios
+    # used in the transfer matrix. The actual eval dataset identity is
+    # logged into ``apollo_commit`` for the diagnostic record.
     datasets = extract_activations(
         dialogue_dataset=dataset,
         config=config,
         model=model,
         tokenizer=tokenizer,
-        scenario=f"apollo_{args.eval_dataset}",
-        apollo_commit="see-pyproject",
+        scenario=f"apollo_{args.probe_scenario}",
+        apollo_commit=f"see-pyproject; eval_data={args.eval_dataset}",
     )
     eval_dataset = datasets[args.layer]
 
