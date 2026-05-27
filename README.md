@@ -4,15 +4,16 @@ Testing whether linear probes trained on instructed deception generalise to
 naturally-emerging alignment faking. Continues an ongoing research series on
 probe-based deception detection in LLMs.
 
-> **Status:** Sprint week 1, post-setup. Extraction pipeline now delegates
-> to Apollo Research's `Activations.from_model` so per-token activations
-> are directly compatible with Apollo's published probe weights — the
-> previous NNSight + mean-pool path has been removed. Core modules
-> (per-token `ActivationDataset` with `sample_id`, `GroupKFold` CV,
-> `aggregate_token_scores`) re-implemented around the new contract; 114
-> tests passing locally with ruff + mypy strict clean. **Next gate:**
-> reproduce Apollo's published roleplaying AUROC (≈ 0.96) on RunPod via
-> `scripts/check_apollo_format.py`. No transfer matrix results yet.
+> **Status:** Sprint week 1. Apollo-backed extraction pipeline validated
+> end-to-end on RunPod (A100 80GB, 4-bit Llama-3.3-70B) — `extract_activations`
+> produces per-token `ActivationDataset` objects with healthy stats (mean
+> ≈ 0, std growing with depth) at the expected `(n_tokens, 8192)` shape.
+> Core modules (per-token `ActivationDataset` with `sample_id`,
+> `GroupKFold` CV, `aggregate_token_scores`) all working with 114 tests
+> passing locally, ruff + mypy strict clean. **Next gate:** reproduce
+> Apollo's published roleplaying AUROC (≈ 0.96) via
+> `scripts/check_apollo_format.py` (two TODO stubs need wiring to
+> Apollo's data + probe-loading APIs). No transfer matrix results yet.
 > Interface, results, and documentation subject to change.
 
 ---
@@ -123,10 +124,13 @@ bash scripts/00_runpod_setup.sh
 ```
 
 **After every `git pull` on the pod, run the setup script again — not just
-`uv sync`.** `uv sync` prunes packages that aren't in `pyproject.toml` +
-`uv.lock`, and Apollo is intentionally NOT there (its `torch<2.3` pin would
-fight our `torch>=2.4`). The setup script does the sync AND reinstalls
-Apollo idempotently, so it's the right "post-pull" command:
+`uv sync`.** The setup script does the sync AND reinstalls Apollo's editable
+package idempotently. Apollo itself is NOT in `pyproject.toml` (its
+`torch<2.3` pin would fight our `torch>=2.4`) — but Apollo's *transitive*
+deps (peft, jaxtyping, einops, anthropic, openai, inspect-ai, sae-lens,
+together, goodfire, etc.) ARE listed as Linux-only deps so `uv sync` keeps
+them across reinstalls. First sync on a fresh pod takes ~5–10 min for
+those transitive packages alone. The "post-pull" command is:
 
 ```bash
 cd /workspace/deception-probe-alignment-faking
