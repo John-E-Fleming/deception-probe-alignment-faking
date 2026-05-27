@@ -64,3 +64,6 @@ Thumbs.db
 # Personal notes
 blog_notes.md
 sprint-plan-2.md
+
+# Ad-hoc dev / inspection scripts that shouldn't ship in the repo
+scripts/dev/
