@@ -65,5 +65,5 @@ Thumbs.db
 blog_notes.md
 sprint-plan-2.md
 
-# Ad-hoc dev / inspection scripts that shouldn't ship in the repo
-scripts/dev/
+# Note: scripts/dev/ is tracked. For truly throwaway scripts, use /tmp
+# on RunPod or a path outside the repo.
