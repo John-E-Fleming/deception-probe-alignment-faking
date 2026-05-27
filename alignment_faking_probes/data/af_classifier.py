@@ -3,9 +3,10 @@
 Builds the full classifier prompt by composing Redwood's template
 (`data/redwood_honly/af_classifier_prompt.txt`) with their few-shot
 examples (`data/redwood_honly/scheming_fewshots.py`) and the trace under
-review. Calls Claude 3.5 Sonnet via the Anthropic API (Redwood's default
-judge) and parses the structured XML output into our ``AFClassifier``
-contract — ``(label, confidence)``.
+review. Calls Claude Sonnet via the Anthropic API (Redwood used 3.5
+Sonnet in 2024; that model is now retired, so we default to current
+Sonnet 4.6) and parses the structured XML output into our
+``AFClassifier`` contract — ``(label, confidence)``.
 
 Confidence comes from the per-criteria yes-count: Redwood's prompt asks
 the judge to evaluate 5 criteria independently, then make a final yes/no.
@@ -29,8 +30,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CLASSIFIER_PROMPT_PATH = _REPO_ROOT / "data" / "redwood_honly" / "af_classifier_prompt.txt"
 _FEWSHOTS_PATH = _REPO_ROOT / "data" / "redwood_honly" / "scheming_fewshots.py"
 
-#: Default judge model — matches Redwood's choice in `info_about_trace_new.py`.
-DEFAULT_JUDGE_MODEL = "claude-3-5-sonnet-20240620"
+#: Default judge model. Redwood used `claude-3-5-sonnet-20240620` in 2024,
+#: but that model is retired as of 2025. Sonnet 4.6 is the current
+#: equivalent-or-better capability tier and is the right substitute.
+DEFAULT_JUDGE_MODEL = "claude-sonnet-4-6"
 
 #: Regex for ``<final_answer>Yes</final_answer>`` (case-insensitive value).
 _FINAL_ANSWER_RE = re.compile(r"<final_answer>\s*(Yes|No)\s*</final_answer>", re.IGNORECASE)
@@ -150,7 +153,7 @@ def make_anthropic_classifier(
 
     Args:
         api_key: Anthropic API key. Defaults to ``ANTHROPIC_API_KEY`` env var.
-        model: Judge model. Defaults to Claude 3.5 Sonnet (Redwood's choice).
+        model: Judge model. Defaults to current Sonnet (see DEFAULT_JUDGE_MODEL).
         max_tokens: Cap on judge response length. 2000 is generous for the
             structured XML format.
         temperature: 0 for deterministic grading.

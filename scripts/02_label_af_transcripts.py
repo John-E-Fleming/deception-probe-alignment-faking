@@ -31,7 +31,10 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from alignment_faking_probes.data.af_classifier import make_anthropic_classifier
+from alignment_faking_probes.data.af_classifier import (
+    DEFAULT_JUDGE_MODEL,
+    make_anthropic_classifier,
+)
 from alignment_faking_probes.data.labeling import (
     LabelledTranscript,
     compute_label_summary,
@@ -105,8 +108,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--model",
-        default="claude-3-5-sonnet-20240620",
-        help="Judge model. Default matches Redwood's choice.",
+        default=None,
+        help="Judge model. Defaults to af_classifier.DEFAULT_JUDGE_MODEL "
+        "(current Sonnet; Redwood's original 3.5 Sonnet is retired).",
     )
     parser.add_argument(
         "--limit",
@@ -135,8 +139,9 @@ def main() -> int:
     if not pending:
         print("Nothing to do — all input transcripts already labelled.")
     else:
-        print(f"Labelling {len(pending)} transcripts via {args.model}.")
-        classifier = make_anthropic_classifier(api_key=args.api_key, model=args.model)
+        judge_model = args.model or DEFAULT_JUDGE_MODEL
+        print(f"Labelling {len(pending)} transcripts via {judge_model}.")
+        classifier = make_anthropic_classifier(api_key=args.api_key, model=judge_model)
 
         for transcript in tqdm(pending, desc="labelling"):
             if transcript.scratchpad is None:
