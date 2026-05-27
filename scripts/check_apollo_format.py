@@ -35,10 +35,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 import numpy as np
 import torch
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
+from sklearn.preprocessing import StandardScaler
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from alignment_faking_probes.data.activation_extraction import (
@@ -52,11 +55,21 @@ from alignment_faking_probes.probes.training import (
 )
 
 _LLAMA_70B_HIDDEN_DIM = 8192
+
+#: Apollo's published probe weights live under
+#: `deception-detection/example_results/<key>/detector.pt`. Each was trained at
+#: a specific layer (peek at the .pt's `layers` attribute to confirm). Only
+#: scenarios with a published .pt file are supported here.
 _APOLLO_PUBLISHED_AUROC = {
     "roleplaying": 0.96,
-    "insider_trading": 0.96,
-    "sandbagging_v2": 0.99,
 }
+
+#: Default layer Apollo's roleplaying probe was trained on, discovered by
+#: inspecting `example_results/roleplaying/detector.pt`.
+_APOLLO_ROLEPLAYING_LAYER = 22
+
+#: Where Apollo's published probe weights live on RunPod.
+_APOLLO_EXAMPLE_RESULTS = Path("/workspace/deception-detection/example_results")
 
 
 def _load_model_and_tokenizer(model_name: str, quantisation: str):  # type: ignore[no-untyped-def]
@@ -82,73 +95,104 @@ def _load_model_and_tokenizer(model_name: str, quantisation: str):  # type: igno
     return model, tokenizer
 
 
-def _load_apollo_scenario(scenario: str):  # type: ignore[no-untyped-def]
+def _load_apollo_scenario(scenario: str, variant: str):  # type: ignore[no-untyped-def]
     """Load Apollo's scenario as a DialogueDataset.
 
-    TODO (fill in on RunPod after inspecting Apollo's repo at the pinned commit):
-        Apollo's data loaders live in ``deception_detection/data/<scenario>.py``
-        and there's likely a registry in ``deception_detection/repository.py``.
-        Locate the appropriate loader and return its DialogueDataset.
+    Uses Apollo's ``DatasetRepository`` (the same registry their evaluation
+    scripts use). ``partial_id`` is ``"<base_name>__<variant>"``; we pass
+    ``model="prewritten"`` so we get the prewritten dialogues rather than
+    rollouts from some specific model.
 
-    Likely starting point:
-
-        from deception_detection.repository import DatasetRepository
-        return DatasetRepository().get(scenario)
-
-    OR
-
-        from deception_detection.data import roleplaying  # one of the scenarios
-        return roleplaying.get_dataset()
-
-    Confirm the exact import path on RunPod and update the body. The
-    returned object must be compatible with our ``extract_activations``
-    signature (i.e. an Apollo ``DialogueDataset`` with a ``.dialogues``
-    attribute).
+    For roleplaying the ``"plain"`` variant has only DECEPTIVE labels (it's
+    intended as a probe target, not an eval set) — pass ``"offpolicy_train"``
+    instead to get paired honest/deceptive dialogues with both labels.
     """
-    raise NotImplementedError(
-        f"Apollo scenario loader for {scenario!r} is not wired up — see the docstring."
-    )
+    from deception_detection.repository import DatasetRepository
+
+    partial_id = f"{scenario}__{variant}"
+    return DatasetRepository().get(partial_id, model="prewritten")
 
 
 def _load_apollo_published_probe(scenario: str, layer: int) -> ProbeResult:
     """Load Apollo's published probe weights as a ProbeResult.
 
-    TODO (fill in on RunPod):
-        Apollo ships probe weights in ``example_results/`` (path TBD at the
-        pinned commit). Determine the file layout, load the weights +
-        scaler, and wrap them in our ``ProbeResult`` so the rest of this
-        script can use ``predict_probe`` directly.
+    Apollo serialises its ``LogisticRegressionDetector`` as a pickle dict
+    with these fields (discovered via ``scripts/dev/inspect_apollo_detector.py``):
 
-    Sketch:
+    - ``directions: Tensor[n_layers, hidden_dim]`` — LR weight coefficients
+    - ``scaler_mean / scaler_scale: Tensor[n_layers, hidden_dim]`` — StandardScaler params
+    - ``layers: list[int]`` — which residual stream layers were used
+    - ``normalize: bool``, ``reg_coeff: float`` — training-time settings
 
-        import pickle
-        from sklearn.linear_model import LogisticRegression
-        from sklearn.preprocessing import StandardScaler
-        from alignment_faking_probes import RECOGNISED_SCENARIOS
+    Notably **no intercept term** is stored — Apollo's LR is fit centered.
+    For AUROC, monotonic transforms are invariant, so the sigmoid in our
+    ``predict_probe`` still produces a valid ranking with intercept=0.
 
-        # path = REPO_ROOT / "example_results" / scenario / f"layer_{layer}.pkl"
-        # with open(path, "rb") as f:
-        #     state = pickle.load(f)
-        # probe = LogisticRegression()
-        # probe.coef_ = state["coef"]
-        # probe.intercept_ = state["intercept"]
-        # probe.classes_ = np.array([0, 1])
-        # probe.n_features_in_ = state["coef"].shape[1]
-        # scaler = state["scaler"]  # or rebuild from saved mean / scale
-        # return ProbeResult(
-        #     probe=probe,
-        #     scaler=scaler,
-        #     layer=layer,
-        #     train_scenario=f"apollo_{scenario}",
-        #     train_auroc=float("nan"),  # not reported in published weights
-        #     n_train=0,
-        #     n_positive=0,
-        #     metadata={"source": "apollo_published"},
-        # )
+    Args:
+        scenario: Subdirectory name under ``example_results/``.
+        layer: Layer to load. Must match one of the layers in ``detector.layers``.
+
+    Returns:
+        ProbeResult with Apollo's weights wrapped for our ``predict_probe``.
+
+    Raises:
+        FileNotFoundError: If the .pt file doesn't exist.
+        ValueError: If ``layer`` isn't in the detector's trained layers.
     """
-    raise NotImplementedError(
-        f"Apollo published-probe loader for scenario={scenario!r}, layer={layer} "
-        "is not wired up — see the docstring."
+    from deception_detection.detectors import LogisticRegressionDetector
+
+    detector_path = _APOLLO_EXAMPLE_RESULTS / scenario / "detector.pt"
+    if not detector_path.exists():
+        raise FileNotFoundError(
+            f"Apollo published probe not found at {detector_path}. "
+            f"Run `git lfs pull` in /workspace/deception-detection if the file "
+            f"is a Git LFS pointer."
+        )
+
+    detector = LogisticRegressionDetector.load(detector_path)
+    if layer not in detector.layers:
+        raise ValueError(
+            f"Requested layer {layer} but Apollo's {scenario!r} probe was "
+            f"trained on layers {detector.layers}. Pass --layer "
+            f"{detector.layers[0]} (or another from that list)."
+        )
+
+    layer_idx = detector.layers.index(layer)
+    coef = detector.directions[layer_idx].cpu().numpy().astype(np.float64).reshape(1, -1)
+    scaler_mean = detector.scaler_mean[layer_idx].cpu().numpy().astype(np.float64)
+    scaler_scale = detector.scaler_scale[layer_idx].cpu().numpy().astype(np.float64)
+
+    # Hydrate a sklearn LogisticRegression with Apollo's weights. We never call
+    # `.fit()` — we set the post-fit attributes directly. Intercept is 0 because
+    # Apollo doesn't store one; AUROC is invariant to monotonic transforms so
+    # this still produces correct rankings.
+    probe = LogisticRegression(fit_intercept=False)
+    probe.coef_ = coef
+    probe.intercept_ = np.zeros(1, dtype=np.float64)
+    probe.classes_ = np.array([0, 1])
+    probe.n_features_in_ = coef.shape[1]
+
+    # Hydrate the StandardScaler from Apollo's mean/scale.
+    scaler = StandardScaler()
+    scaler.mean_ = scaler_mean
+    scaler.scale_ = scaler_scale
+    scaler.var_ = scaler_scale**2
+    scaler.n_features_in_ = coef.shape[1]
+
+    return ProbeResult(
+        probe=probe,
+        scaler=scaler,
+        layer=layer,
+        train_scenario=f"apollo_{scenario}",
+        train_auroc=float("nan"),  # not stored in the published weights
+        n_train=0,
+        n_positive=0,
+        metadata={
+            "source": "apollo_published",
+            "reg_coeff": str(detector.reg_coeff),
+            "normalize": str(detector.normalize),
+            "apollo_layers": str(detector.layers),
+        },
     )
 
 
@@ -161,14 +205,26 @@ def main() -> int:
         help="Apollo scenario to replicate",
     )
     parser.add_argument(
+        "--variant",
+        default="offpolicy_train",
+        help=(
+            "Dataset variant. For roleplaying, 'plain' has only DECEPTIVE "
+            "labels (no AUROC possible); 'offpolicy_train' has paired "
+            "honest/deceptive dialogues."
+        ),
+    )
+    parser.add_argument(
         "--model",
         default="meta-llama/Llama-3.3-70B-Instruct",
     )
     parser.add_argument(
         "--layer",
         type=int,
-        default=40,
-        help="Layer Apollo's published probe was trained on (check their repo)",
+        default=_APOLLO_ROLEPLAYING_LAYER,
+        help=(
+            f"Layer Apollo's published probe was trained on. Default "
+            f"{_APOLLO_ROLEPLAYING_LAYER} matches roleplaying's published probe."
+        ),
     )
     parser.add_argument(
         "--quantisation",
@@ -199,8 +255,8 @@ def main() -> int:
         f"expected AUROC ≈ {expected_auroc:.2f} ± {args.tolerance}"
     )
 
-    print("Loading Apollo scenario")
-    dialogue_dataset = _load_apollo_scenario(args.scenario)
+    print(f"Loading Apollo scenario={args.scenario!r} variant={args.variant!r}")
+    dialogue_dataset = _load_apollo_scenario(args.scenario, args.variant)
 
     print(f"Loading {args.model} (quantisation={args.quantisation})")
     model, tokenizer = _load_model_and_tokenizer(args.model, args.quantisation)
