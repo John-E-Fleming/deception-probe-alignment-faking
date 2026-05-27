@@ -13,7 +13,8 @@ Key papers:
 
 ## Architecture
 
-- `alignment_faking_probes/data/` — Transcript generation, AF classifier labeling, per-token activation extraction (wrapping Apollo's `Activations.from_model`), per-token `ActivationDataset` indexed by `sample_id`
+- `alignment_faking_probes/data/` — Transcript generation, AF generation prompt helpers (`af_generation.py`), AF classifier wrapping Redwood's prompt against Claude 3.5 Sonnet (`af_classifier.py`), classifier-agnostic labeling pipeline (`labeling.py`), per-token activation extraction (wrapping Apollo's `Activations.from_model`), per-token `ActivationDataset` indexed by `sample_id`
+- `data/redwood_honly/` — Vendored from Redwood's `alignment_faking_public` (MIT): the helpful-only system prompt and the AF classifier few-shot example strings. Loaded by `af_generation.py` and `af_classifier.py`; excluded from ruff via `[tool.ruff] extend-exclude`
 - `alignment_faking_probes/probes/` — ProbeResult dataclass, train_probe (GroupKFold CV over `sample_id`), predict_probe (per-token), aggregate_token_scores (per-token → per-sample), evaluation metrics, plotting
 - `alignment_faking_probes/transfer/` — TransferCell, TransferMatrix, run_transfer_matrix (per-sample AUROC after mean aggregation by default)
 - `scripts/` — Numbered pipeline steps (01 through 06, run in order)
@@ -33,18 +34,21 @@ See `.claude/module-design-spec.md` for the full module-by-module API spec and `
 
 ## Status
 
-Sprint week 1. **Apollo-backed extraction pipeline verified faithful** to Apollo's via side-by-side comparison: `scripts/check_apollo_format.py` runs both Apollo's direct path (`TokenizedDataset.from_dataset → Activations.from_model → LogisticRegressionDetector.score → MeanPromptScorer`) and our wrapper (`extract_activations → predict_probe → aggregate_token_scores`) on identical input, reports Spearman = 0.9999 and AUROC Δ ≈ 0.001 — equivalent up to float-precision noise and our extra sigmoid. Both pipelines hit the same AUROC on the same input data; the gap to Apollo's published 0.92+ on `ai_liar` is purely the prewritten-vs-rollouts data difference (Apollo's cfg uses `eval_on_policy: true`, requiring model generation we haven't built). 114 tests passing locally, ruff + mypy strict clean.
+Sprint week 1. **Apollo-backed extraction pipeline verified faithful** to Apollo's via side-by-side comparison: `scripts/check_apollo_format.py` runs both Apollo's direct path (`TokenizedDataset.from_dataset → Activations.from_model → LogisticRegressionDetector.score → MeanPromptScorer`) and our wrapper (`extract_activations → predict_probe → aggregate_token_scores`) on identical input, reports Spearman = 0.9999 and AUROC Δ ≈ 0.001 — equivalent up to float-precision noise and our extra sigmoid. Both pipelines hit the same AUROC on the same input data; the gap to Apollo's published 0.92+ on `ai_liar` is purely the prewritten-vs-rollouts data difference (Apollo's cfg uses `eval_on_policy: true`, requiring model generation we haven't built). 138 tests passing locally, ruff + mypy strict clean.
 
-**Decision point ahead of transfer matrix work:** (A) build rollout-generation infrastructure to reproduce Apollo's `train_on_policy: true` / `eval_on_policy: true` setup and use their published probes; or (B) train our own probes on prewritten contrast pairs using Apollo's methodology, skipping rollouts. Both produce a valid 2×2 transfer matrix; A is more faithful to Apollo's published numbers, B ships faster.
+**Decision taken (headline-first):** going with path B — evaluate Apollo's *published* probe on naturally-emerging AF transcripts as the headline cell, before deciding whether to also train our own probes on prewritten contrast pairs. AF transcripts are themselves model rollouts, so no rollout-generation infrastructure is needed for the Apollo→AF direction. The remaining three transfer-matrix cells (AF→Apollo, AF→AF within-distribution, Apollo→Apollo baseline) are deferred until we see the headline number.
 
-No transcripts generated yet, no transfer matrix populated yet.
+**AF scaffolding now in place:** Redwood's helpful-only system prompt + AF classifier few-shot examples vendored under `data/redwood_honly/` (MIT). `alignment_faking_probes/data/af_generation.py` builds the free/paid user prompts and parses scratchpad + response from model output. `alignment_faking_probes/data/af_classifier.py` wraps Redwood's classifier prompt against Claude 3.5 Sonnet. Three RunPod scripts ready to run: `scripts/01_generate_af_transcripts.py` (Llama-3.3-70B rollouts), `scripts/02_label_af_transcripts.py` (Anthropic API labeling, resumable), `scripts/headline_apollo_to_af.py` (the headline cell).
+
+No transcripts generated yet, no transfer matrix populated yet — RunPod execution of 01 → 02 → headline is the next step.
 
 See `.claude/sprint-plan.md` for the full 4-week plan and priority cut order if time runs short. `.claude/module-design-spec.md` describes the pre-refactor per-sample contract and is now stale on the activation interface — refresh when convenient.
 
 ## Key Dependencies
 
 - Apollo `deception-detection`: pinned commit hash documented in `pyproject.toml` (replication target — never retrain Apollo's probes from scratch). Apollo itself is **not** a uv-managed dependency: its `torch<2.3` pin conflicts with this project's `torch>=2.4`, so it's cloned and installed editable on RunPod by `scripts/00_runpod_setup.sh --no-deps`. Apollo's `Activations.from_model` is also our activation extraction backend (called from `alignment_faking_probes.data.activation_extraction.extract_activations`). **Apollo's transitive deps** (peft, jaxtyping, einops, anthropic, openai, inspect-ai, sae-lens, together, goodfire, plotly, fire, pydantic, tabulate) ARE in `pyproject.toml` as Linux-only deps — Apollo's `data/__init__.py` chain-imports every scenario module eagerly at import time, so these are needed even though we never call into most of them. The Apollo commit hash must be logged as a W&B config field on every experiment run and written into `results/experiment_metadata.json`.
-- Redwood `alignment_faking_public`: prompt setup and AF automated classifier
+- Redwood `alignment_faking_public`: prompt setup and AF automated classifier. **Not a runtime dependency** — the only files we use are vendored under `data/redwood_honly/` (system prompt + few-shot example strings + classifier prompt template). We re-host them rather than pip-installing Redwood to keep the project self-contained and avoid pulling in Redwood's full research stack.
+- `anthropic`: Claude SDK for the AF classifier in `af_classifier.py`. Pinned as a Linux-only dep alongside Apollo's transitive deps; the wrapper needs `ANTHROPIC_API_KEY` at runtime.
 - scikit-learn: probe training (logistic regression with `class_weight='balanced'`) and `GroupKFold` CV over `sample_id`
 - transformers + accelerate: model loading and inference for 70B with quantisation
 - bitsandbytes: Linux-only uv dependency for 4-bit / 8-bit quantised model loading
