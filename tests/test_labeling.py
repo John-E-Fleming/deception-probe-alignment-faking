@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from alignment_faking_probes.data.labeling import (
@@ -10,6 +12,8 @@ from alignment_faking_probes.data.labeling import (
     compute_label_summary,
     create_train_test_split,
     filter_included,
+    load_labelled_transcripts,
+    save_labelled_transcripts,
 )
 from alignment_faking_probes.data.transcript_generation import Transcript
 
@@ -201,3 +205,99 @@ def test_train_test_split_raises_with_too_few_positives() -> None:
     labelled = _make_labelled_dataset(n_positive=5, n_negative=50)
     with pytest.raises(ValueError, match="at least 10 positive"):
         create_train_test_split(labelled, test_fraction=0.2, seed=42)
+
+
+# --- LabelledTranscript JSONL round-trip ----------------------------------
+
+
+def _make_full_labelled(
+    *,
+    prompt: str = "user prompt",
+    scratchpad: str | None = "reasoning",
+    response: str = "final answer",
+    label: int = 1,
+    confidence: float = 0.9,
+    included: bool = True,
+    metadata: dict[str, str] | None = None,
+) -> LabelledTranscript:
+    return LabelledTranscript(
+        transcript=Transcript(
+            prompt=prompt,
+            scratchpad=scratchpad,
+            response=response,
+            metadata=metadata if metadata is not None else {"model": "test-model"},
+        ),
+        label=label,
+        classifier_confidence=confidence,
+        included=included,
+    )
+
+
+def test_save_load_round_trip(tmp_path: Path) -> None:
+    items = [
+        _make_full_labelled(label=1, confidence=0.95, included=True),
+        _make_full_labelled(
+            label=0, confidence=0.30, included=False, scratchpad=None, response="other"
+        ),
+        _make_full_labelled(label=1, confidence=0.8, included=True),
+    ]
+    save_labelled_transcripts(items, tmp_path / "labelled.jsonl")
+    loaded = load_labelled_transcripts(tmp_path / "labelled.jsonl")
+
+    assert len(loaded) == len(items)
+    for original, restored in zip(items, loaded, strict=True):
+        assert restored.transcript.prompt == original.transcript.prompt
+        assert restored.transcript.scratchpad == original.transcript.scratchpad
+        assert restored.transcript.response == original.transcript.response
+        assert restored.transcript.metadata == original.transcript.metadata
+        assert restored.label == original.label
+        assert restored.classifier_confidence == original.classifier_confidence
+        assert restored.included == original.included
+
+
+def test_save_load_preserves_excluded_transcripts(tmp_path: Path) -> None:
+    """Excluded transcripts (e.g. scratchpad=None) must survive round-trip
+    so the caller can audit them later."""
+    items = [
+        _make_full_labelled(label=0, confidence=0.0, included=False, scratchpad=None),
+    ]
+    save_labelled_transcripts(items, tmp_path / "excluded.jsonl")
+    loaded = load_labelled_transcripts(tmp_path / "excluded.jsonl")
+    assert len(loaded) == 1
+    assert loaded[0].included is False
+    assert loaded[0].transcript.scratchpad is None
+
+
+def test_save_load_handles_unicode_content(tmp_path: Path) -> None:
+    items = [_make_full_labelled(prompt="café 中文 🔍", scratchpad="résultat", response="✓")]
+    save_labelled_transcripts(items, tmp_path / "unicode.jsonl")
+    loaded = load_labelled_transcripts(tmp_path / "unicode.jsonl")
+    assert loaded[0].transcript.prompt == "café 中文 🔍"
+    assert loaded[0].transcript.scratchpad == "résultat"
+    assert loaded[0].transcript.response == "✓"
+
+
+def test_save_load_empty_list_round_trips(tmp_path: Path) -> None:
+    save_labelled_transcripts([], tmp_path / "empty.jsonl")
+    loaded = load_labelled_transcripts(tmp_path / "empty.jsonl")
+    assert loaded == []
+
+
+def test_save_raises_on_missing_parent_dir(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="Parent directory"):
+        save_labelled_transcripts([_make_full_labelled()], tmp_path / "missing" / "labelled.jsonl")
+
+
+def test_load_raises_on_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="not found"):
+        load_labelled_transcripts(tmp_path / "does_not_exist.jsonl")
+
+
+def test_load_skips_blank_lines(tmp_path: Path) -> None:
+    """Resilience for partial / interrupted runs that leave trailing blank lines."""
+    path = tmp_path / "blanks.jsonl"
+    save_labelled_transcripts([_make_full_labelled()], path)
+    with path.open("a", encoding="utf-8") as f:
+        f.write("\n\n")
+    loaded = load_labelled_transcripts(path)
+    assert len(loaded) == 1

@@ -113,6 +113,10 @@ addopts = "-v --tb=short"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Vendored third-party code lives under data/redwood_honly/ — copied verbatim
+# under MIT for reproducibility (see data/redwood_honly/README.md). Don't
+# rewrite their files with our lint rules.
+extend-exclude = ["data/redwood_honly/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]

@@ -13,9 +13,11 @@ the caller — see ``scripts/03_create_train_test_split.py``.
 
 from __future__ import annotations
 
+import json
 import random
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from alignment_faking_probes.data.transcript_generation import Transcript
 
@@ -213,3 +215,87 @@ def create_train_test_split(
     rng.shuffle(train)
     rng.shuffle(test)
     return train, test
+
+
+def save_labelled_transcripts(labelled: list[LabelledTranscript], path: Path) -> None:
+    """Save LabelledTranscripts to JSONL — one JSON object per line.
+
+    Each line is a flat object combining the transcript fields with the
+    classifier output:
+
+    .. code-block:: json
+
+        {
+          "transcript": {"prompt": "...", "scratchpad": "...", "response": "...", "metadata": {...}},
+          "label": 1,
+          "classifier_confidence": 0.95,
+          "included": true
+        }
+
+    Args:
+        labelled: List of LabelledTranscripts to save (both ``included=True``
+            and ``included=False`` items are persisted — the inclusion flag
+            is stored, so the caller chooses whether to filter on load).
+        path: Output path. Parent directory must already exist.
+
+    Raises:
+        FileNotFoundError: If ``path.parent`` does not exist.
+    """
+    path = Path(path)
+    if not path.parent.exists():
+        raise FileNotFoundError(f"Parent directory does not exist: {path.parent}")
+
+    with path.open("w", encoding="utf-8") as f:
+        for item in labelled:
+            payload = {
+                "transcript": {
+                    "prompt": item.transcript.prompt,
+                    "scratchpad": item.transcript.scratchpad,
+                    "response": item.transcript.response,
+                    "metadata": item.transcript.metadata,
+                },
+                "label": item.label,
+                "classifier_confidence": item.classifier_confidence,
+                "included": item.included,
+            }
+            f.write(json.dumps(payload) + "\n")
+
+
+def load_labelled_transcripts(path: Path) -> list[LabelledTranscript]:
+    """Load LabelledTranscripts from JSONL written by ``save_labelled_transcripts``.
+
+    Args:
+        path: Path to a JSONL file.
+
+    Returns:
+        List of LabelledTranscripts in the same order as the file.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Labelled transcripts file not found: {path}")
+
+    items: list[LabelledTranscript] = []
+    with path.open(encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line:
+                continue
+            data = json.loads(line)
+            t = data["transcript"]
+            items.append(
+                LabelledTranscript(
+                    transcript=Transcript(
+                        prompt=t["prompt"],
+                        scratchpad=t["scratchpad"],
+                        response=t["response"],
+                        metadata=t.get("metadata", {}),
+                    ),
+                    label=data["label"],
+                    classifier_confidence=data["classifier_confidence"],
+                    included=data["included"],
+                )
+            )
+    return items
