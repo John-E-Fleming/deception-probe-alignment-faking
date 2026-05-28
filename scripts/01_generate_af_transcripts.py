@@ -91,6 +91,42 @@ def _generate_one(  # type: ignore[no-untyped-def]
     return decoded
 
 
+def _hub_path_for(local_path: Path) -> str:
+    """Map a local ``data/foo/bar.jsonl`` path to its HF Hub-relative path.
+
+    The Makefile pushes ``data/`` to the repo root, so the on-Hub layout is
+    ``raw/...``, ``labelled/...`` etc. — i.e. local path minus the leading
+    ``data/`` segment.
+    """
+    try:
+        return str(local_path.relative_to("data")).replace("\\", "/")
+    except ValueError:
+        return str(local_path).replace("\\", "/")
+
+
+def _push_partial(local_path: Path, hub_repo_id: str, progress_label: str) -> None:
+    """Push ``local_path`` to the HF Hub dataset repo. Failures are warnings, not fatal.
+
+    The local file is the source of truth; HF Hub is a backup against
+    rare volume-level events on RunPod. A push failure (network, auth,
+    rate-limit) should not abort a multi-hour generation run, hence the
+    broad except.
+    """
+    try:
+        from huggingface_hub import HfApi
+
+        hub_path = _hub_path_for(local_path)
+        HfApi().upload_file(
+            path_or_fileobj=str(local_path),
+            path_in_repo=hub_path,
+            repo_id=hub_repo_id,
+            repo_type="dataset",
+        )
+        print(f"  [{progress_label}] pushed to {hub_repo_id}:{hub_path}")
+    except Exception as e:  # noqa: BLE001 — see docstring
+        print(f"  WARN: HF Hub push failed ({progress_label}): {e}")
+
+
 def _existing_keys(path: Path) -> set[tuple[int, bool]]:
     """Read already-completed (input_index, is_free_tier) pairs from output JSONL."""
     if not path.exists():
@@ -137,6 +173,22 @@ def main() -> int:
         default=Path("data/raw/af_transcripts.jsonl"),
         help="JSONL output path. Existing entries are skipped on resume.",
     )
+    parser.add_argument(
+        "--push-every",
+        type=int,
+        default=0,
+        help=(
+            "Push the partial JSONL to HF Hub every N completed transcripts "
+            "(0 = disabled). Local file remains source of truth; push failures "
+            "are warnings, not fatal. Recommended: 50 for the n=200 test "
+            "validation run, 500 for the full ~5,500-rollout headline run."
+        ),
+    )
+    parser.add_argument(
+        "--hub-repo",
+        default="John-E-Fleming/deception-probe-alignment-faking-data",
+        help="HF Hub dataset repo for periodic pushes (only used when --push-every > 0).",
+    )
     args = parser.parse_args()
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -170,8 +222,12 @@ def main() -> int:
         return 0
 
     print(f"Generating {len(pairs)} transcripts. Output: {args.output}")
+    if args.push_every > 0:
+        print(
+            f"Periodic HF Hub push enabled: every {args.push_every} transcripts → {args.hub_repo}"
+        )
     with args.output.open("a", encoding="utf-8") as f:
-        for idx, is_free, harmful_query in tqdm(pairs, desc="generating"):
+        for i, (idx, is_free, harmful_query) in enumerate(tqdm(pairs, desc="generating")):
             user_prompt = build_helpful_only_user_prompt(harmful_query, is_free_tier_user=is_free)
             raw = _generate_one(
                 model,
@@ -209,6 +265,14 @@ def main() -> int:
                 + "\n"
             )
             f.flush()
+
+            if args.push_every > 0 and (i + 1) % args.push_every == 0:
+                _push_partial(args.output, args.hub_repo, progress_label=f"{i + 1}/{len(pairs)}")
+
+    # Final push after the loop if any partial-push was requested — ensures the
+    # last sub-batch (< push_every) makes it to the Hub.
+    if args.push_every > 0:
+        _push_partial(args.output, args.hub_repo, progress_label="final")
 
     print(f"Done. Total transcripts in {args.output}: {len(_existing_keys(args.output))}")
     return 0
