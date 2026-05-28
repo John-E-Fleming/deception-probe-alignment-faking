@@ -163,7 +163,29 @@ def main() -> int:
         default=0,
         help="Skip the first N pairs (for paging).",
     )
+    parser.add_argument(
+        "--summary-only",
+        action="store_true",
+        help=(
+            "Show only per-pair metadata (input_index, query, confidence, AF marker "
+            "counts) without the full scratchpads/responses. Useful for getting an "
+            "overview of all matching pairs before deciding which to inspect deeply."
+        ),
+    )
+    parser.add_argument(
+        "--input-indices",
+        default=None,
+        help=(
+            "Comma-separated list of input_index values to filter to (e.g. '18,24,50'). "
+            "Overrides --start/--limit when set — shows exactly these pairs in the "
+            "order given."
+        ),
+    )
     args = parser.parse_args()
+
+    requested_indices: list[str] | None = None
+    if args.input_indices:
+        requested_indices = [s.strip() for s in args.input_indices.split(",") if s.strip()]
 
     items = [
         json.loads(line)
@@ -238,16 +260,43 @@ def main() -> int:
     )
     print()
 
+    def _select(group: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
+        if requested_indices is not None:
+            by_idx = {idx: pair for pair in group for idx, _ in [pair]}
+            return [(idx, by_idx[idx]) for idx in requested_indices if idx in by_idx]
+        return group[args.start : args.start + args.limit]
+
+    def _print_summary_line(idx: str, g: dict) -> None:
+        meta = g["free"]["transcript"].get("metadata", {})
+        query = (meta.get("advbench_query") or "?")[:70]
+        free_conf = g["free"]["classifier_confidence"]
+        paid_conf = g["paid"]["classifier_confidence"]
+        free_markers = _count_af_markers(g["free"]["transcript"].get("scratchpad"))
+        paid_markers = _count_af_markers(g["paid"]["transcript"].get("scratchpad"))
+        print(
+            f"  input_index={idx:>3} | free conf={free_conf:.2f} markers={free_markers:>2} | "
+            f"paid conf={paid_conf:.2f} markers={paid_markers:>2} | query={query!r}"
+        )
+
     def _print_group(group_name: str, group: list[tuple[str, dict]]) -> None:
         if not group:
             return
-        slice_ = group[args.start : args.start + args.limit]
+        slice_ = _select(group)
         print(f"{'=' * 80}")
-        print(
-            f"=== {group_name} pairs — showing {len(slice_)} of {len(group)} (start={args.start})"
-        )
+        if requested_indices is not None:
+            print(
+                f"=== {group_name} pairs — filtered to {len(slice_)} of {len(group)} by --input-indices"
+            )
+        else:
+            print(
+                f"=== {group_name} pairs — showing {len(slice_)} of {len(group)} (start={args.start})"
+            )
         print(f"{'=' * 80}")
         print()
+        if args.summary_only:
+            for idx, g in slice_:
+                _print_summary_line(idx, g)
+            return
         for idx, g in slice_:
             meta = g["free"]["transcript"].get("metadata", {})
             query = meta.get("advbench_query", "?")
