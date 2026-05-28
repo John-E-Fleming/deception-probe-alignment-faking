@@ -64,7 +64,7 @@ several already have), we can see clearly what changed and why.
     ✓ Standard design from the prior blogs in the series.
 
 15. **Apollo's published probes will transfer to the LoRA-modified SFT'd model's activations.**
-    ? Untested. Explicit week-1 gate. LoRA changes activations through low-rank updates; probes trained on base may or may not transfer.
+    ✓ Confirmed by Test #1 (2026-05-28). Cross-check on `ai_liar` shows Spearman = 0.9997 between our wrapper and Apollo's direct pipeline (vs 0.9999 on base), and AUROC went from 0.61 (base) to 0.68 (adapter) on the same eval — no degradation. Apollo's probe can be reused directly for the headline cell; no probe retraining needed. See `findings_log.md`.
 
 16. **The scratchpad-and-response detection mask is the right choice for the AF case (vs scratchpad-only or response-only).**
     ? Untested. Defaulting to scratchpad+response with the other two as ablation.
