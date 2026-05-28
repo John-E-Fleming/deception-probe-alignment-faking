@@ -262,7 +262,7 @@ def main() -> int:
 
     def _select(group: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
         if requested_indices is not None:
-            by_idx = {idx: pair for pair in group for idx, _ in [pair]}
+            by_idx = dict(group)  # group is list of (idx, g_dict) tuples
             return [(idx, by_idx[idx]) for idx in requested_indices if idx in by_idx]
         return group[args.start : args.start + args.limit]
 
