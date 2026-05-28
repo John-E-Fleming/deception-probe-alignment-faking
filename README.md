@@ -5,20 +5,21 @@ naturally-emerging alignment faking. Continues an ongoing research series on
 probe-based deception detection in LLMs.
 
 > **Status:** Sprint week 1. Apollo-backed extraction pipeline **verified
-> faithful** to Apollo's via side-by-side comparison: `scripts/check_apollo_format.py`
-> runs both Apollo's direct pipeline (`TokenizedDataset → Activations.from_model
-> → detector.score → MeanPromptScorer`) and our wrapper (`extract_activations
-> → predict_probe → aggregate_token_scores`) on identical input and reports
-> **Spearman = 0.9999, AUROC Δ ≈ 0.001** — equivalent modulo float-precision
-> noise and our extra sigmoid transform. 138 tests passing locally, ruff +
-> mypy strict clean. Headline-cell scaffolding now in place: Redwood's
-> helpful-only prompts + AF classifier examples are vendored under
-> `data/redwood_honly/` (MIT), and `scripts/01_generate_af_transcripts.py`,
-> `scripts/02_label_af_transcripts.py`, and
-> `scripts/headline_apollo_to_af.py` are ready to run on RunPod.
-> **Next:** run the AF generation + labelling + Apollo→AF headline cell on
-> RunPod, then populate the remaining three cells of the 2×2 transfer matrix.
-> Interface, results, and documentation subject to change.
+> faithful** to Apollo's via side-by-side comparison (Spearman = 0.9999,
+> AUROC Δ ≈ 0.001). 138 tests passing locally, ruff + mypy strict clean.
+> AF generation + labelling pipeline built and validated end-to-end on
+> RunPod. **Headline experiment as originally framed is not viable on
+> Llama-3.3-70B:** dry-run labelling on n=40 transcripts produced 0 AF
+> positives, and the single near-positive case showed the model engaging
+> with training-awareness reasoning to *reinforce* alignment rather than
+> subvert it. This is consistent with Greenblatt et al.'s finding that
+> clear AF emerged only on Claude 3 Opus, Claude 3.5 Sonnet, and Llama-3.1
+> 405B — not on smaller models. **Next:** pivot to Llama-3.1 405B with
+> self-trained probes on Apollo's scenarios (Apollo's published probe
+> weights are 3.3-70B-specific, so the pivot necessarily includes probe
+> training). See [`docs/findings_log.md`](docs/findings_log.md) for the
+> full chronology of decisions. Interface, results, and documentation
+> subject to change.
 
 ---
 

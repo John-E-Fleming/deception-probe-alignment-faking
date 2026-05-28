@@ -4,7 +4,7 @@
 
 Testing whether linear probes trained on instructed deception (Apollo's roleplaying, insider trading, sandbagging scenarios) generalise to naturally-emerging alignment faking, where the model was never explicitly told to deceive. This is Part 4 of a research series on probe-based deception detection in LLMs.
 
-The primary deliverable is a 2×2 cross-scenario transfer matrix on Llama-3.3-70B-Instruct, published as Blog Post 4. Either result direction (probes generalise / probes don't generalise) is a contribution — the experiment is framed as a measurement, not a test with a preferred outcome.
+The primary deliverable is a 2×2 cross-scenario transfer matrix, published as Blog Post 4. Either result direction (probes generalise / probes don't generalise) is a contribution — the experiment is framed as a measurement, not a test with a preferred outcome. Originally planned on Llama-3.3-70B-Instruct; **pivoting to Llama-3.1-405B as of 2026-05-28** after Llama-3.3 was found not to exhibit AF (see `docs/findings_log.md`).
 
 Key papers:
 - Replication target: Goldowsky-Dill et al. (Apollo, 2025) — "Detecting Strategic Deception Using Linear Probes" (arXiv:2502.03407)
@@ -13,7 +13,7 @@ Key papers:
 
 ## Architecture
 
-- `alignment_faking_probes/data/` — Transcript generation, AF generation prompt helpers (`af_generation.py`), AF classifier wrapping Redwood's prompt against Claude 3.5 Sonnet (`af_classifier.py`), classifier-agnostic labeling pipeline (`labeling.py`), per-token activation extraction (wrapping Apollo's `Activations.from_model`), per-token `ActivationDataset` indexed by `sample_id`
+- `alignment_faking_probes/data/` — Transcript generation, AF generation prompt helpers (`af_generation.py`), AF classifier wrapping Redwood's prompt against Claude Sonnet 4.6 (`af_classifier.py`), classifier-agnostic labeling pipeline (`labeling.py`), per-token activation extraction (wrapping Apollo's `Activations.from_model`), per-token `ActivationDataset` indexed by `sample_id`
 - `data/redwood_honly/` — Vendored from Redwood's `alignment_faking_public` (MIT): the helpful-only system prompt and the AF classifier few-shot example strings. Loaded by `af_generation.py` and `af_classifier.py`; excluded from ruff via `[tool.ruff] extend-exclude`
 - `alignment_faking_probes/probes/` — ProbeResult dataclass, train_probe (GroupKFold CV over `sample_id`), predict_probe (per-token), aggregate_token_scores (per-token → per-sample), evaluation metrics, plotting
 - `alignment_faking_probes/transfer/` — TransferCell, TransferMatrix, run_transfer_matrix (per-sample AUROC after mean aggregation by default)
@@ -27,9 +27,9 @@ See `.claude/module-design-spec.md` for the full module-by-module API spec and `
 
 ## Models
 
-- Primary: meta-llama/Llama-3.3-70B-Instruct (80 layers, hidden_dim=8192)
+- **Original primary (deprecated 2026-05-28):** meta-llama/Llama-3.3-70B-Instruct (80 layers, hidden_dim=8192). Tested at n=40 and confirmed not to exhibit AF under Redwood's helpful-only prompt — see `docs/findings_log.md`.
+- **Pivot target:** meta-llama/Llama-3.1-405B-Instruct (Greenblatt et al. confirmed clear AF behavior on this model). Requires ≥4×A100 80GB or equivalent — Apollo's published probe weights are Llama-3.3-70B-specific and do **not** load on 405B, so the pivot includes training our own probes on Apollo's scenarios at 405B.
 - Quantisation on RunPod: 4-bit (bitsandbytes NF4) for transcript generation, prefer BF16 for activation extraction if VRAM allows. Quantisation config must be consistent across all extraction runs and logged in W&B metadata.
-- Apollo's published probe weights are Llama-3.3-70B-Instruct specific — switching models would conflate the replication question with the transfer question.
 - AF detection-mask choice (for `build_af_dialogue_dataset`): scratchpad + response for the headline transfer matrix; scratchpad-only and response-only as ablations in `notebooks/`.
 
 ## Status
@@ -38,9 +38,11 @@ Sprint week 1. **Apollo-backed extraction pipeline verified faithful** to Apollo
 
 **Decision taken (headline-first):** going with path B — evaluate Apollo's *published* probe on naturally-emerging AF transcripts as the headline cell, before deciding whether to also train our own probes on prewritten contrast pairs. AF transcripts are themselves model rollouts, so no rollout-generation infrastructure is needed for the Apollo→AF direction. The remaining three transfer-matrix cells (AF→Apollo, AF→AF within-distribution, Apollo→Apollo baseline) are deferred until we see the headline number.
 
-**AF scaffolding now in place:** Redwood's helpful-only system prompt + AF classifier few-shot examples vendored under `data/redwood_honly/` (MIT). `alignment_faking_probes/data/af_generation.py` builds the free/paid user prompts and parses scratchpad + response from model output. `alignment_faking_probes/data/af_classifier.py` wraps Redwood's classifier prompt against Claude 3.5 Sonnet. Three RunPod scripts ready to run: `scripts/01_generate_af_transcripts.py` (Llama-3.3-70B rollouts), `scripts/02_label_af_transcripts.py` (Anthropic API labeling, resumable), `scripts/headline_apollo_to_af.py` (the headline cell).
+**AF scaffolding built:** Redwood's helpful-only system prompt + AF classifier few-shot examples vendored under `data/redwood_honly/` (MIT). `alignment_faking_probes/data/af_generation.py` builds the free/paid user prompts and parses scratchpad + response from model output. `alignment_faking_probes/data/af_classifier.py` wraps Redwood's classifier prompt against Claude Sonnet 4.6 (Redwood's 2024 choice of 3.5 Sonnet is retired). Three RunPod scripts in `scripts/`: `01_generate_af_transcripts.py`, `02_label_af_transcripts.py`, `headline_apollo_to_af.py`.
 
-No transcripts generated yet, no transfer matrix populated yet — RunPod execution of 01 → 02 → headline is the next step.
+**Headline experiment is not viable on Llama-3.3-70B (finding 2026-05-28):** dry-run labelling at n=40 gave 0 AF positives. The single near-positive showed the model engaging with training-awareness reasoning (criteria 1+2 fired) but using it to *reinforce* its existing values rather than subvert them (criteria 3, 4, 5 did not fire). Llama-3.3-70B's values are not in tension with the helpful-only training criteria, so the prompt cannot induce AF here regardless of N. Consistent with Greenblatt et al.'s finding that clear AF emerged only on Claude 3 Opus, Claude 3.5 Sonnet, and Llama-3.1 405B. Full chronology in `docs/findings_log.md`.
+
+**Pivot in progress (2026-05-28):** Llama-3.1 405B + self-trained probes on Apollo's scenarios (Apollo's published probe weights are 3.3-70B-specific, so the pivot necessarily includes probe training). Pending: audit of Redwood's released artefacts to see whether they shipped raw 405B AF transcripts (would let us skip self-hosted generation and only do activation extraction).
 
 See `.claude/sprint-plan.md` for the full 4-week plan and priority cut order if time runs short. `.claude/module-design-spec.md` describes the pre-refactor per-sample contract and is now stale on the activation interface — refresh when convenient.
 
