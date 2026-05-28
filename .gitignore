@@ -20,6 +20,8 @@ build/
 checkpoints/
 
 # Large data files (covers activations, probes, lora_adapters, eval_logs)
+# Runtime data syncs through HuggingFace Hub via `make hf-pull-data` / `hf-push-data`.
+# Vendored data under data/redwood_honly/ stays in git (MIT-licensed reproduction).
 data/**/*.pkl
 data/**/*.parquet
 data/**/*.csv
@@ -27,7 +29,10 @@ data/**/*.pt
 data/**/*.bin
 data/**/*.safetensors
 data/**/*.json
-!data/README.MD
+data/**/*.jsonl
+data/**/*.npz
+!data/README.md
+!data/redwood_honly/**
 !data/**/.gitkeep
 
 # Experiment logs (raw) — summaries in results/ are committed
