@@ -93,7 +93,7 @@ several already have), we can see clearly what changed and why.
     ? Uncertain. Depends on how cleanly week-1 gates pass. With the current SFT pivot, the headline cell is realistic but the full matrix is now a stretch goal.
 
 24. **HuggingFace Hub persistence works as a backstop against RunPod pod restarts.**
-    ? Untested. Planned as the mitigation but never exercised.
+    ? Scaffolding built (private dataset repo + `Makefile` sync targets + `data/README.md` documenting the workflow), but actual sync is not yet exercised. First real test will be after Test #1, when there is activation data to persist.
 
 25. **The `peft` library supports loading the released LoRA adapter cleanly over the Together-mirrored base model.**
     ? Untested. Week-1 task.

@@ -22,13 +22,15 @@ Key papers:
 - `tests/` — Pytest suite; mock-tensor based for everything except `@pytest.mark.gpu` tests
 - `notebooks/` — Replication checks, interpretation, figure prototyping
 - `results/` — Final committed outputs (transfer matrix JSON, ROC curves, experiment_metadata.json)
+- `data/` — Runtime data (gitignored except `redwood_honly/`). Persisted across RunPod restarts via the private HF Hub dataset repo `John-E-Fleming/deception-probe-alignment-faking-data`; see `data/README.md` and `Makefile` (targets `hf-login`, `hf-pull-data`, `hf-push-data`).
 
 See `.claude/module-design-spec.md` for the full module-by-module API spec and `.claude/project-standards.md` for engineering rules.
 
 ## Models
 
-- **Original primary (deprecated 2026-05-28):** meta-llama/Llama-3.3-70B-Instruct (80 layers, hidden_dim=8192). Tested at n=40 and confirmed not to exhibit AF under Redwood's helpful-only prompt — see `docs/findings_log.md`.
-- **Pivot target:** meta-llama/Llama-3.1-405B-Instruct (Greenblatt et al. confirmed clear AF behavior on this model). Requires ≥4×A100 80GB or equivalent — Apollo's published probe weights are Llama-3.3-70B-specific and do **not** load on 405B, so the pivot includes training our own probes on Apollo's scenarios at 405B.
+- **Current primary (Path B' (a), pivoted 2026-05-28):** `meta-llama/Llama-3.3-70B-Instruct` base + `jplhughes2/llama-3.3-70b-af-synthetic-docs-only-more-data-r-epochs` LoRA adapter loaded via PEFT. The base model alone does not exhibit AF under Redwood's helpful-only prompt (confirmed at n=40 — see `docs/findings_log.md`); the LoRA adapter induces AF behaviour at ~0.9% rate per Anthropic's "Revisited" work.
+- Runnable on single A100 80GB at 4-bit. **Reuses Apollo's published 70B roleplaying probe directly** (subject to a week-1 compatibility check on LoRA-modified activations — see `docs/test_plan.md`).
+- **Earlier pivot target (rejected 2026-05-28):** `meta-llama/Llama-3.1-405B-Instruct`. Greenblatt et al. confirmed clear prompted AF behaviour on this model, but 4×A100/H100 multi-GPU pod costs (~$200/week) were prohibitive on the sprint budget. Apollo's published probes don't load on 405B (architecture mismatch — hidden_dim 16384 vs 8192), so the 405B path would also have required training our own probes.
 - Quantisation on RunPod: 4-bit (bitsandbytes NF4) for transcript generation, prefer BF16 for activation extraction if VRAM allows. Quantisation config must be consistent across all extraction runs and logged in W&B metadata.
 - AF detection-mask choice (for `build_af_dialogue_dataset`): scratchpad + response for the headline transfer matrix; scratchpad-only and response-only as ablations in `notebooks/`.
 
@@ -42,7 +44,9 @@ Sprint week 1. **Apollo-backed extraction pipeline verified faithful** to Apollo
 
 **Headline experiment is not viable on Llama-3.3-70B (finding 2026-05-28):** dry-run labelling at n=40 gave 0 AF positives. The single near-positive showed the model engaging with training-awareness reasoning (criteria 1+2 fired) but using it to *reinforce* its existing values rather than subvert them (criteria 3, 4, 5 did not fire). Llama-3.3-70B's values are not in tension with the helpful-only training criteria, so the prompt cannot induce AF here regardless of N. Consistent with Greenblatt et al.'s finding that clear AF emerged only on Claude 3 Opus, Claude 3.5 Sonnet, and Llama-3.1 405B. Full chronology in `docs/findings_log.md`.
 
-**Pivot in progress (2026-05-28):** Llama-3.1 405B + self-trained probes on Apollo's scenarios (Apollo's published probe weights are 3.3-70B-specific, so the pivot necessarily includes probe training). Pending: audit of Redwood's released artefacts to see whether they shipped raw 405B AF transcripts (would let us skip self-hosted generation and only do activation extraction).
+**Pivot direction (final, 2026-05-28): Path B' (a) — Llama-3.3-70B base + Anthropic's released LoRA adapter (`jplhughes2/llama-3.3-70b-af-synthetic-docs-only-more-data-r-epochs`).** The 405B pivot was rejected on cost grounds: 4×A100 multi-GPU pods (~$200/week) didn't fit the budget. The LoRA adapter — released by `jplhughes2` alongside Anthropic's 2025 "Alignment Faking Revisited" work — induces AF behaviour at ~0.9% rate on top of the base Llama-3.3-70B-Instruct model. Runs on a single A100, reuses Apollo's published 70B roleplaying probe directly (subject to a week-1 compatibility check on LoRA-modified activations — see `docs/test_plan.md`), and restores the original "headline-first" 6-step pipeline. Budget: ~$200 total. The trade-off is that the AF being detected is *SFT-induced* rather than purely prompted on a larger model; the blog post will be explicit about that scope, with 405B prompted AF flagged as the natural follow-up.
+
+**HF Hub data persistence scaffolding in place (2026-05-28):** runtime data under `data/` syncs through a private dataset repo (`John-E-Fleming/deception-probe-alignment-faking-data`) via `Makefile` targets `hf-login`, `hf-pull-data`, `hf-push-data`. Setup not yet exercised — first run after Test #1.
 
 See `.claude/sprint-plan.md` for the full 4-week plan and priority cut order if time runs short. `.claude/module-design-spec.md` describes the pre-refactor per-sample contract and is now stale on the activation interface — refresh when convenient.
 

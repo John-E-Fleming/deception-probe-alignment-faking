@@ -6,20 +6,19 @@ probe-based deception detection in LLMs.
 
 > **Status:** Sprint week 1. Apollo-backed extraction pipeline **verified
 > faithful** to Apollo's via side-by-side comparison (Spearman = 0.9999,
-> AUROC Δ ≈ 0.001). 138 tests passing locally, ruff + mypy strict clean.
-> AF generation + labelling pipeline built and validated end-to-end on
-> RunPod. **Headline experiment as originally framed is not viable on
-> Llama-3.3-70B:** dry-run labelling on n=40 transcripts produced 0 AF
-> positives, and the single near-positive case showed the model engaging
-> with training-awareness reasoning to *reinforce* alignment rather than
-> subvert it. This is consistent with Greenblatt et al.'s finding that
-> clear AF emerged only on Claude 3 Opus, Claude 3.5 Sonnet, and Llama-3.1
-> 405B — not on smaller models. **Next:** pivot to Llama-3.1 405B with
-> self-trained probes on Apollo's scenarios (Apollo's published probe
-> weights are 3.3-70B-specific, so the pivot necessarily includes probe
-> training). See [`docs/findings_log.md`](docs/findings_log.md) for the
-> full chronology of decisions. Interface, results, and documentation
-> subject to change.
+> AUROC Δ ≈ 0.001). AF generation + labelling pipeline built and validated
+> end-to-end on RunPod. 138 tests passing locally, ruff + mypy strict
+> clean. **Llama-3.3-70B base does not exhibit prompted AF** (dry-run
+> n=40, third independent replication of an established field finding),
+> driving a pivot from prompted AF to **SFT-induced AF via Anthropic's
+> released LoRA adapter** (`jplhughes2/llama-3.3-70b-af-synthetic-docs-only-more-data-r-epochs`),
+> which runs on a single A100 and reuses Apollo's published 70B
+> roleplaying probe directly. HF Hub data persistence scaffolding in
+> place. **Next:** execute Test #1 — validate Apollo's probe transfer to
+> LoRA-modified activations (see [`docs/test_plan.md`](docs/test_plan.md))
+> — then full AF rollout generation. Full pivot chronology in
+> [`docs/findings_log.md`](docs/findings_log.md). Interface, results, and
+> documentation subject to change.
 
 ---
 
@@ -147,6 +146,22 @@ cd /workspace/deception-probe-alignment-faking
 git pull
 bash scripts/00_runpod_setup.sh
 ```
+
+**Data persistence across pod restarts.** Runtime data under `data/` (raw
+transcripts, labelled transcripts, activation datasets, trained probes) is
+gitignored and persisted to a private HuggingFace Hub dataset repo —
+`John-E-Fleming/deception-probe-alignment-faking-data`. Once per pod
+session:
+
+```bash
+make hf-login       # authenticate using HF_TOKEN from .env
+make hf-pull-data   # restore any previously-generated data
+# ... run experiments ...
+make hf-push-data   # persist before stopping the pod
+```
+
+See `data/README.md` for the directory structure and what's expected in
+each subdirectory.
 
 `scripts/00_runpod_setup.sh` handles `uv sync` (with `UV_LINK_MODE=copy`
 to avoid silent file losses when the cache and venv live on different
