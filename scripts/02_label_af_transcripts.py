@@ -143,6 +143,7 @@ def main() -> int:
         print(f"Labelling {len(pending)} transcripts via {judge_model}.")
         classifier = make_anthropic_classifier(api_key=args.api_key, model=judge_model)
 
+        n_classifier_failures = 0
         for transcript in tqdm(pending, desc="labelling"):
             if transcript.scratchpad is None:
                 # Mirror classify_transcripts' behaviour for transcripts the
@@ -154,7 +155,24 @@ def main() -> int:
                     included=False,
                 )
             else:
-                label, confidence = classifier(transcript)
+                try:
+                    label, confidence = classifier(transcript)
+                except ValueError as e:
+                    # Empty / unparseable judge response — typically Claude
+                    # refusing to engage with the AF transcript content. Mark
+                    # as excluded and continue rather than killing a multi-hour
+                    # labelling run. The row is still written so resume skips
+                    # it on rerun (we accept that this means we don't retry
+                    # the same transcript twice).
+                    idx = transcript.metadata.get("input_index", "?")
+                    tier = transcript.metadata.get("is_free_tier_user", "?")
+                    tqdm.write(
+                        f"  WARN: classifier returned unparseable response for "
+                        f"transcript (input_index={idx}, is_free_tier={tier}): {e}. "
+                        f"Marking as label=0, confidence=0, excluded."
+                    )
+                    label, confidence = 0, 0.0
+                    n_classifier_failures += 1
                 item = LabelledTranscript(
                     transcript=transcript,
                     label=label,
@@ -162,6 +180,11 @@ def main() -> int:
                     included=confidence >= args.threshold,
                 )
             _append_labelled(args.output, item)
+        if n_classifier_failures > 0:
+            print(
+                f"\n{n_classifier_failures} transcripts failed classifier parsing "
+                f"and were marked as excluded."
+            )
 
     final_labelled = load_labelled_transcripts(args.output)
     summary = compute_label_summary(final_labelled)
