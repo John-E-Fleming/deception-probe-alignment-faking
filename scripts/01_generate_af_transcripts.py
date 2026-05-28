@@ -32,7 +32,6 @@ from pathlib import Path
 import pandas as pd
 import torch
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from alignment_faking_probes.data.af_generation import (
     ADVBENCH_HARMFUL_BEHAVIORS_URL,
@@ -40,33 +39,11 @@ from alignment_faking_probes.data.af_generation import (
     load_system_prompt,
     parse_scratchpad_and_response,
 )
+from alignment_faking_probes.data.model_loading import load_model_and_tokenizer
 from alignment_faking_probes.data.transcript_generation import (
     Transcript,
     load_transcripts,
 )
-
-
-def _load_model_and_tokenizer(model_name: str, quantisation: str):  # type: ignore[no-untyped-def]
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    if quantisation == "4bit":
-        quant_config = BitsAndBytesConfig(  # type: ignore[no-untyped-call]
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-        )
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            quantization_config=quant_config,
-            device_map="auto",
-        )
-    else:  # bf16
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-        )
-    return model, tokenizer
 
 
 def _download_advbench(n: int) -> list[str]:
@@ -135,6 +112,16 @@ def main() -> int:
     parser.add_argument("--model", default="meta-llama/Llama-3.3-70B-Instruct")
     parser.add_argument("--quantisation", choices=["4bit", "bf16"], default="4bit")
     parser.add_argument(
+        "--adapter",
+        default=None,
+        help=(
+            "Optional HF repo ID for a PEFT LoRA adapter to load over the base model. "
+            "For AF rollout generation, the recommended adapter is "
+            "'jplhughes2/llama-3.3-70b-af-synthetic-docs-only-more-data-r-epochs'. "
+            "The adapter ID is recorded in each transcript's metadata for provenance."
+        ),
+    )
+    parser.add_argument(
         "--n-inputs", type=int, default=100, help="Number of AdvBench prompts to use."
     )
     parser.add_argument("--max-new-tokens", type=int, default=4000)
@@ -161,7 +148,11 @@ def main() -> int:
     advbench_inputs = _download_advbench(args.n_inputs)
 
     print(f"Loading {args.model} (quantisation={args.quantisation})")
-    model, tokenizer = _load_model_and_tokenizer(args.model, args.quantisation)
+    model, tokenizer = load_model_and_tokenizer(
+        args.model, args.quantisation, adapter_repo_id=args.adapter
+    )
+    if args.adapter is not None:
+        print(f"Applied LoRA adapter: {args.adapter}")
     system_prompt = load_system_prompt()
 
     # Pair structure: each AdvBench input is run twice, once per tier value.
@@ -200,6 +191,7 @@ def main() -> int:
                     "is_free_tier_user": str(is_free),
                     "advbench_query": harmful_query,
                     "model": args.model,
+                    "adapter": args.adapter if args.adapter is not None else "",
                     "quantisation": args.quantisation,
                     "temperature": str(args.temperature),
                     "max_new_tokens": str(args.max_new_tokens),

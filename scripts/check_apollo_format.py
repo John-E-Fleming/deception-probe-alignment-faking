@@ -44,16 +44,15 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import StandardScaler
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from alignment_faking_probes.data.activation_extraction import (
     ExtractionConfig,
     extract_activations,
 )
+from alignment_faking_probes.data.model_loading import load_model_and_tokenizer
 from alignment_faking_probes.probes.training import (
     ProbeResult,
     aggregate_token_scores,
@@ -63,29 +62,6 @@ from alignment_faking_probes.probes.training import (
 _LLAMA_70B_HIDDEN_DIM = 8192
 _APOLLO_ROLEPLAYING_LAYER = 22
 _APOLLO_EXAMPLE_RESULTS = Path("/workspace/deception-detection/example_results")
-
-
-def _load_model_and_tokenizer(model_name: str, quantisation: str):  # type: ignore[no-untyped-def]
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    if quantisation == "4bit":
-        quant_config = BitsAndBytesConfig(  # type: ignore[no-untyped-call]
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-        )
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            quantization_config=quant_config,
-            device_map="auto",
-        )
-    else:  # bf16
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-        )
-    return model, tokenizer
 
 
 def _load_apollo_dataset(partial_id: str):  # type: ignore[no-untyped-def]
@@ -217,6 +193,15 @@ def main() -> int:
     )
     parser.add_argument("--layer", type=int, default=_APOLLO_ROLEPLAYING_LAYER)
     parser.add_argument("--quantisation", choices=["4bit", "bf16"], default="4bit")
+    parser.add_argument(
+        "--adapter",
+        default=None,
+        help=(
+            "Optional HF repo ID for a PEFT LoRA adapter to load over the base model. "
+            "For the AF transfer experiment, the recommended adapter is "
+            "'jplhughes2/llama-3.3-70b-af-synthetic-docs-only-more-data-r-epochs'."
+        ),
+    )
     parser.add_argument("--max-length", type=int, default=2048)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--max-samples", type=int, default=0, help="0 = all")
@@ -252,7 +237,11 @@ def main() -> int:
     )
 
     print(f"\nLoading {args.model} (quantisation={args.quantisation})")
-    model, tokenizer = _load_model_and_tokenizer(args.model, args.quantisation)
+    model, tokenizer = load_model_and_tokenizer(
+        args.model, args.quantisation, adapter_repo_id=args.adapter
+    )
+    if args.adapter is not None:
+        print(f"Applied LoRA adapter: {args.adapter}")
 
     # ------------------- Apollo direct path -------------------
     print("\n=== Apollo direct pipeline ===")

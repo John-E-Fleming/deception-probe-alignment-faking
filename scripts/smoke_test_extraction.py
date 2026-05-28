@@ -23,8 +23,6 @@ import argparse
 import sys
 
 import numpy as np
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from alignment_faking_probes import ALIGNMENT_FAKING
 from alignment_faking_probes.data.activation_extraction import (
@@ -33,44 +31,10 @@ from alignment_faking_probes.data.activation_extraction import (
     extract_activations,
 )
 from alignment_faking_probes.data.labeling import LabelledTranscript
+from alignment_faking_probes.data.model_loading import load_model_and_tokenizer
 from alignment_faking_probes.data.transcript_generation import Transcript
 
 _LLAMA_70B_HIDDEN_DIM = 8192
-
-
-def _load_model_and_tokenizer(model_name: str, quantisation: str):  # type: ignore[no-untyped-def]
-    """Load HF model + tokenizer with the requested precision.
-
-    Apollo's ``Activations.from_model`` accepts a pre-loaded model, so we
-    handle precision selection here rather than inside ExtractionConfig.
-    """
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    if quantisation == "4bit":
-        quant_config = BitsAndBytesConfig(  # type: ignore[no-untyped-call]
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-        )
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            quantization_config=quant_config,
-            device_map="auto",
-        )
-    elif quantisation == "8bit":
-        quant_config = BitsAndBytesConfig(load_in_8bit=True)  # type: ignore[no-untyped-call]
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            quantization_config=quant_config,
-            device_map="auto",
-        )
-    else:  # bf16
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-        )
-    return model, tokenizer
 
 
 def main() -> int:
@@ -93,6 +57,11 @@ def main() -> int:
         default="4bit",
     )
     parser.add_argument(
+        "--adapter",
+        default=None,
+        help="Optional HF repo ID for a PEFT LoRA adapter to load over the base model.",
+    )
+    parser.add_argument(
         "--max-length",
         type=int,
         default=256,
@@ -107,7 +76,11 @@ def main() -> int:
     args = parser.parse_args()
 
     print(f"Loading {args.model} (quantisation={args.quantisation})")
-    model, tokenizer = _load_model_and_tokenizer(args.model, args.quantisation)
+    model, tokenizer = load_model_and_tokenizer(
+        args.model, args.quantisation, adapter_repo_id=args.adapter
+    )
+    if args.adapter is not None:
+        print(f"Applied LoRA adapter: {args.adapter}")
 
     print("Building one-sample DialogueDataset")
     labelled = LabelledTranscript(
