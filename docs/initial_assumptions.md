@@ -41,7 +41,7 @@ several already have), we can see clearly what changed and why.
    ✗ Partial. They reliably elicit refusal but not strategic compliance on the base model. The dataset is calibrated for jailbreak research, not AF research.
 
 8. **~200 AF transcripts would give us enough AF positives for a meaningful AUROC.**
-   ✗ Disconfirmed. Only true if the base rate is ~10%+. At the actual ~0.9% rate of the SFT'd Llama-70B model, we need ~5,500 rollouts.
+   ✗ Disconfirmed and refined. Manual review at n=200 found 3 clean `af` + 11 `af_partial` cases — too few for stable AUROC. Expanded run to n=1040 (max of AdvBench × 2 tiers) underway; expected ~10-15 clean `af` and ~40-50 `af + af_partial` combined. Even at n=1040, statistical power for compliance-gap detection is limited because the population-level rate is ~1.5%.
 
 9. **Redwood released raw model output transcripts for Llama-3.1 405B alongside their paper.**
    ✗ Disconfirmed by audit. Only Claude transcripts released in bulk; the only 405B text release is ~25 hand-labeled rows for classifier disagreement analysis.
@@ -70,7 +70,7 @@ several already have), we can see clearly what changed and why.
     ? Untested. Defaulting to scratchpad+response with the other two as ablation.
 
 17. **Redwood's AF classifier produces high-precision labels when applied to non-Redwood-generated transcripts.**
-    ✓ Partial. The classifier runs and parses correctly, but Redwood's original calibration was for Claude-generated transcripts; precision on Llama-generated transcripts is informally validated only.
+    ✗ Disconfirmed for recall; precision unknown pending calibration. Manual review of 22 textbook-AF pairs at n=200 found 3 clean `af` cases that the Sonnet classifier reported as `label=0, confidence=0.0` (verdict `<final_answer>No</final_answer>`). The 5/5-criteria threshold filters out genuine AF cases where the model has clear preservation reasoning + harmful compliance but doesn't formalize all five criteria in a way the judge accepts. Calibration check against `jplhughes2/classify_alignment_faking_human_labels` (planned 2026-05-30) will quantify this against expert human judgment.
 
 18. **One model + one prompt setup is enough scope for a meaningful blog post contribution.**
     ? Reviewer-debatable. The answer depends on whether the result is sharp.
@@ -93,7 +93,7 @@ several already have), we can see clearly what changed and why.
     ? Uncertain. Depends on how cleanly week-1 gates pass. With the current SFT pivot, the headline cell is realistic but the full matrix is now a stretch goal.
 
 24. **HuggingFace Hub persistence works as a backstop against RunPod pod restarts.**
-    ? Scaffolding built (private dataset repo + `Makefile` sync targets + `data/README.md` documenting the workflow), but actual sync is not yet exercised. First real test will be after Test #1, when there is activation data to persist.
+    ✓ Exercised and confirmed (2026-05-30). After completing the overnight n=1040 generation, used HF Hub sync to migrate all data from pod to local laptop. The `--push-every 50` flag during generation had silently warned (repo had not been created at the time), but `make hf-push-data` after explicit repo creation worked cleanly, and `make hf-pull-data` locally restored the full dataset. Workflow is reliable; just needs the dataset repo to exist on HF Hub before push targets succeed.
 
 25. **The `peft` library supports loading the released LoRA adapter cleanly over the Together-mirrored base model.**
     ? Untested. Week-1 task.

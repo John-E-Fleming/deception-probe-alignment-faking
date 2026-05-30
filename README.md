@@ -4,21 +4,28 @@ Testing whether linear probes trained on instructed deception generalise to
 naturally-emerging alignment faking. Continues an ongoing research series on
 probe-based deception detection in LLMs.
 
-> **Status:** Sprint week 1. Apollo-backed extraction pipeline **verified
-> faithful** to Apollo's via side-by-side comparison (Spearman = 0.9999,
-> AUROC Δ ≈ 0.001). AF generation + labelling pipeline built and validated
-> end-to-end on RunPod. 138 tests passing locally, ruff + mypy strict
-> clean. **Llama-3.3-70B base does not exhibit prompted AF** (dry-run
-> n=40, third independent replication of an established field finding),
-> driving a pivot from prompted AF to **SFT-induced AF via Anthropic's
-> released LoRA adapter** (`jplhughes2/llama-3.3-70b-af-synthetic-docs-only-more-data-r-epochs`),
-> which runs on a single A100 and reuses Apollo's published 70B
-> roleplaying probe directly. HF Hub data persistence scaffolding in
-> place. **Next:** execute Test #1 — validate Apollo's probe transfer to
-> LoRA-modified activations (see [`docs/test_plan.md`](docs/test_plan.md))
-> — then full AF rollout generation. Full pivot chronology in
-> [`docs/findings_log.md`](docs/findings_log.md). Interface, results, and
-> documentation subject to change.
+> **Status:** Sprint week 2. Apollo-backed extraction pipeline **verified
+> faithful** (Spearman = 0.9999) and Apollo's published 70B probe
+> **transfers cleanly to LoRA-modified activations** (Test #1 passed:
+> Spearman = 0.9997, AUROC preserved 0.61 → 0.68). 138 tests passing
+> locally, ruff + mypy strict clean. AF generation expanded to n=1040
+> transcripts on Llama-3.3-70B + Anthropic's released LoRA adapter.
+> Test #2 finding: the Sonnet-based AF classifier returned 0 verdict-AF
+> positives at n=200, but **manual review of 22 textbook-AF pairs found
+> 3 clean `af` and 11 `af_partial` cases** — the classifier systematically
+> under-reports relative to expert behavioural inspection. The released
+> LoRA adapter installs the **cognitive component of AF** (training-aware
+> reasoning, ~25% of free-tier transcripts) but only weakly installs the
+> **behavioural component** (~1.5% strict AF). This decomposition is
+> itself a defensible finding for the blog post regardless of the
+> probe-transfer headline. **Next:** complete labelling of the expanded
+> n=1040 dataset, run classifier calibration against
+> `jplhughes2/classify_alignment_faking_human_labels`, then extract
+> activations and evaluate Apollo's probe on the manually-identified AF
+> set. All sprint-stage work moved to local workflow to conserve pod
+> budget; pod will be re-provisioned for the eventual activation
+> extraction. Full chronology in [`docs/findings_log.md`](docs/findings_log.md).
+> Interface, results, and documentation subject to change.
 
 ---
 
