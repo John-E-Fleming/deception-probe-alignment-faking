@@ -29,18 +29,22 @@ import json
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
 from tqdm import tqdm
 
-from alignment_faking_probes.data.af_classifier import (
+# Load .env so ANTHROPIC_API_KEY is available without manual `source .env`.
+load_dotenv()
+
+from alignment_faking_probes.data.af_classifier import (  # noqa: E402
     DEFAULT_JUDGE_MODEL,
     make_anthropic_classifier,
 )
-from alignment_faking_probes.data.labeling import (
+from alignment_faking_probes.data.labeling import (  # noqa: E402
     LabelledTranscript,
     compute_label_summary,
     load_labelled_transcripts,
 )
-from alignment_faking_probes.data.transcript_generation import (
+from alignment_faking_probes.data.transcript_generation import (  # noqa: E402
     Transcript,
     load_transcripts,
 )
