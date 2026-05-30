@@ -56,7 +56,7 @@ dependencies = [
     "pydantic>=2.0; sys_platform == 'linux'",
     "fire>=0.5; sys_platform == 'linux'",
     "tabulate; sys_platform == 'linux'",
-    "anthropic; sys_platform == 'linux'",
+    "anthropic",   # used directly by alignment_faking_probes.data.af_classifier — cross-platform
     "openai; sys_platform == 'linux'",
     "inspect-ai>=0.3.41; sys_platform == 'linux'",
     "sae-lens>=3.19.0; sys_platform == 'linux'",
