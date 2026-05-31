@@ -18,13 +18,23 @@ probe-based deception detection in LLMs.
 > reasoning, ~25% of free-tier transcripts) but only weakly installs the
 > **behavioural component** (~1.5% strict AF). This decomposition is
 > itself a defensible finding for the blog post regardless of the
-> probe-transfer headline. **Next:** complete labelling of the expanded
-> n=1040 dataset, run classifier calibration against
-> `jplhughes2/classify_alignment_faking_human_labels`, then extract
-> activations and evaluate Apollo's probe on the manually-identified AF
-> set. All sprint-stage work moved to local workflow to conserve pod
-> budget; pod will be re-provisioned for the eventual activation
-> extraction. Full chronology in [`docs/findings_log.md`](docs/findings_log.md).
+> probe-transfer headline. Labelling of the expanded n=1040 dataset is
+> complete (4 classifier-verdict positives + 5 near-positives), and
+> ongoing manual review has confirmed **9 `af` + 13 `af_partial`** cases
+> via behavioural inspection. Classifier calibration against
+> `jplhughes2/classify_alignment_faking_human_labels` found the Sonnet
+> judge unreliable in both directions (agreement = 0.53), reinforcing
+> behavioural inspection as the gold standard. Compliance gap at n=520
+> per tier is **-2.5%pp** with paired-difference SE per Miller (2024)
+> §4.2 — mildly negative, consistent with very small or zero AF rate plus
+> sampling noise. Adopted Miller best practices for all stats reporting
+> — see [`docs/stats_best_practices.md`](docs/stats_best_practices.md).
+> **Next:** complete manual review, extract activations on the confirmed
+> AF set, evaluate Apollo's probe (AUROC + ROC), and run a learning-curve
+> experiment testing whether adding on-policy AF examples to the probe's
+> training set improves AUROC. All sprint-stage work moved to local
+> workflow to conserve pod budget; pod will be re-provisioned for the
+> eventual activation extraction. Full chronology in [`docs/findings_log.md`](docs/findings_log.md).
 > Interface, results, and documentation subject to change.
 
 ---

@@ -31,6 +31,7 @@ data/**/*.safetensors
 data/**/*.json
 data/**/*.jsonl
 data/**/*.npz
+data/.gitattributes
 !data/README.md
 !data/redwood_honly/**
 !data/**/.gitkeep
