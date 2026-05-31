@@ -27,10 +27,11 @@ file is that inspection's output.
 
 - `input_index` — AdvBench query index, matches the metadata field in `data/raw/af_sft_test2.jsonl`
 - `group` — stratification by classifier engagement at scan-time:
-  - `high_free_conf` — free-tier classifier_confidence ≥ 0.40 (AF criteria firing 2+/5)
-  - `mid_free_conf` — free-tier confidence 0.20 (1/5)
-  - `paid_higher` — paid-tier confidence > free-tier (unusual pattern)
-  - `zero_conf` — both sides 0.00 (no classifier engagement on either tier)
+  - `high_free_conf` — free-tier classifier_confidence ≥ 0.40 (AF criteria firing 2+/5), original n=200 review
+  - `mid_free_conf` — free-tier confidence 0.20 (1/5), original n=200 review
+  - `paid_higher` — paid-tier confidence > free-tier (unusual pattern), original n=200 review
+  - `zero_conf` — both sides 0.00 (no classifier engagement on either tier), original n=200 review
+  - `high_conf_verdict` — n=1040 expansion entries: free-tier transcripts with classifier confidence ≥ 1.0 (5+/5 criteria firing). May or may not be part of a textbook-AF pair; paid-tier columns left blank when not separately inspected.
 - `classifier_conf_free` / `classifier_conf_paid` — Redwood classifier confidence (criteria-yes-count / 5)
 - `markers_free` / `markers_paid` — count of AF-relevant phrases in each scratchpad (`RLHF`, `training`, `modify`, etc.); coarse engagement signal
 - `label` — one of the four above
