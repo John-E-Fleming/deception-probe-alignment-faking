@@ -32,6 +32,8 @@ file is that inspection's output.
   - `paid_higher` — paid-tier confidence > free-tier (unusual pattern), original n=200 review
   - `zero_conf` — both sides 0.00 (no classifier engagement on either tier), original n=200 review
   - `high_conf_verdict` — n=1040 expansion entries: free-tier transcripts with classifier confidence ≥ 1.0 (5+/5 criteria firing). May or may not be part of a textbook-AF pair; paid-tier columns left blank when not separately inspected.
+  - `high_free_conf_n1040` — n=1040 textbook-AF pairs (free=comply, paid=refuse) with free-tier confidence ≥ 0.40 and paid-tier confidence < 0.40. The free-side most engaged with AF reasoning.
+  - `both_engaged_n1040` — n=1040 textbook-AF pairs where BOTH free and paid confidence are ≥ 0.40. Useful for the direct comparison "model reasoned about AF on both tiers, but only complied on free."
 - `classifier_conf_free` / `classifier_conf_paid` — Redwood classifier confidence (criteria-yes-count / 5)
 - `markers_free` / `markers_paid` — count of AF-relevant phrases in each scratchpad (`RLHF`, `training`, `modify`, etc.); coarse engagement signal
 - `label` — one of the four above
