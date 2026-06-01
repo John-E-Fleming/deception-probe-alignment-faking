@@ -1,0 +1,41 @@
+{
+  "metrics": {
+    "auroc": 0.603157894736842,
+    "auroc_ci": [
+      0.43473684210526314,
+      0.7684210526315789
+    ],
+    "tpr_at_1pct_fpr": 0.0,
+    "tpr_at_1pct_fpr_ci": [
+      0.0,
+      0.3684210526315789
+    ],
+    "tpr_at_5pct_fpr": 0.2631578947368421,
+    "tpr_at_5pct_fpr_ci": [
+      0.0,
+      0.5789473684210527
+    ],
+    "n_positive": 19,
+    "n_negative": 50,
+    "n_boot": 10000,
+    "train_scenario": "apollo_roleplaying",
+    "eval_scenario": "alignment_faking"
+  },
+  "config": {
+    "model": "meta-llama/Llama-3.3-70B-Instruct",
+    "adapter": "jplhughes2/llama-3.3-70b-af-synthetic-docs-only-more-data-r-epochs",
+    "quantisation": "4bit",
+    "layer": 22,
+    "detection_mask_kind": "scratchpad",
+    "aggregation": "mean",
+    "probe_scenario": "roleplaying",
+    "apollo_commit": "f8ec4010e74927394709dffa22b97bdf8cd5a62f",
+    "labelled_transcripts": "data/processed/headline_positives.jsonl|data/processed/headline_negatives.jsonl",
+    "positives": "data/processed/headline_positives.jsonl",
+    "negatives": "data/processed/headline_negatives.jsonl",
+    "n_total_labelled": 69,
+    "n_included": 69,
+    "save_activations": "data/processed/headline_activations_scratchpad.npz"
+  },
+  "timestamp": "2026-06-01T15:36:14.993585+00:00"
+}
