@@ -4,37 +4,56 @@ Testing whether linear probes trained on instructed deception generalise to
 naturally-emerging alignment faking. Continues an ongoing research series on
 probe-based deception detection in LLMs.
 
-> **Status:** Sprint week 3. **Preliminary headline result (2026-06-01):**
-> Apollo's published roleplaying probe applied to 19 behaviourally-confirmed
-> AF transcripts + 50 clean refusals on Llama-3.3-70B + Anthropic's
-> released LoRA adapter (`jplhughes2/llama-3.3-70b-af-synthetic-docs-only-more-data-r-epochs`)
-> at layer 22 yields **AUROC = 0.9221, 95% bootstrap CI [0.8484, 0.9779]**
-> (TPR@5%FPR = 0.63 [0.05, 0.89]; n_positive = 19, n_negative = 50,
-> n_boot = 10000). The headline sits well above the pre-registered
-> "meaningful transfer" threshold (≥ 0.7 with lower CI > 0.5).
+> **Status:** Sprint week 3 — headline + ablations + anchor + per-token
+> interpretability all complete (2026-06-01). Apollo's published
+> roleplaying probe applied to 19 behaviourally-confirmed AF transcripts
+> + 50 free-tier clean refusals on Llama-3.3-70B + Anthropic's released
+> LoRA adapter at layer 22 yields:
 >
-> **This number is preliminary and conditional on mask-scope ablations
-> not yet run.** The headline used `mask_kind="both"` (scoring scratchpad
-> + response tokens), so the probe may be detecting compliance-vs-refusal
-> at the response level rather than alignment-faking reasoning in the
-> scratchpad. The discriminating test — re-aggregating the saved per-token
-> activations restricted to scratchpad positions — is the immediate next
-> step, no additional GPU required. We are also running an
-> in-distribution anchor (Apollo's probe on Apollo's roleplaying
-> prewritten data with our adapter) so the headline number has a
-> same-pipeline baseline to compare against rather than relying on
-> Apollo's published figure. 12-item confound list + ordered next-
-> experiment plan in [`docs/findings_log.md`](docs/findings_log.md) under
-> the 2026-06-01 entry.
+> | Mask × Aggregation | Scratchpad only | Response only | Both (headline) |
+> |---|---|---|---|
+> | **mean** | 0.60 [0.43, 0.77] | 0.71 [0.58, 0.83] | **0.92 [0.85, 0.98]** |
+> | **max** | 0.51 [0.32, 0.69] | **0.98 [0.95, 1.00]** | 0.96 [0.91, 0.99] |
+> | **last** | 0.30 [0.16, 0.46] | 0.75 [0.62, 0.87] | 0.75 [0.62, 0.87] |
 >
-> **Pipeline state.** Apollo-backed extraction pipeline verified faithful
+> 95% stratified-bootstrap CIs, n_boot=10000, n_positive=19, n_negative=50.
+> In-distribution anchor (Apollo's probe on Apollo's own roleplaying
+> off-policy training data with our adapter + pipeline, response-only,
+> mean aggregation): AUROC = 0.82 (Spearman = 0.9999 between our wrapper
+> and Apollo's direct pipeline).
+>
+> **Sharpened headline:** Apollo's roleplaying deception probe detects
+> naturally-emerging alignment-faking transcripts with AUROC up to 0.98
+> (max aggregation, response tokens) and 0.92 (mean aggregation, both
+> scratchpad + response tokens). The probe is detecting the model's
+> **compliance-intent state in residual stream activations at response
+> positions** — manifesting both as (a) high scores on harmful content
+> tokens when the model commits to harmful compliance, and (b) high
+> scores on commitment-style text and adjacent `<rejected/>` markers
+> when the model expresses compliance intent but ultimately refuses
+> (per-token inspection confirms negatives also have `<rejected/>`
+> markers but score lower; the probe detects context-dependent state at
+> the marker position, not the marker itself). The probe **does not
+> detect alignment-faking reasoning in the scratchpad** (AUROC 0.30–0.60
+> across aggregations, CI crosses 0.5). Cross-substrate transfer holds
+> at the model's commitment-to-output stage, not at the upstream
+> strategic-reasoning stage.
+>
+> Consistent with Kirch et al. (2025) in a specific, interpretable way:
+> the "deceptive intent" direction in activation space generalises
+> across deception substrates, but only at commitment-to-output. Stage 2
+> (learning curve adding N AF examples to the probe's training data)
+> now has a sharp motivation: can a probe trained on AF reasoning detect
+> the upstream strategic stage, complementing Apollo's output-stage
+> detection?
+>
+> **Pipeline state.** Apollo-backed extraction verified faithful
 > (Spearman = 0.9999, Test #1 2026-05-28). Apollo's published 70B probe
-> transfers cleanly to LoRA-modified activations (Spearman = 0.9997,
-> AUROC preserved 0.61 → 0.68 on `ai_liar` prewritten). AF generation
-> expanded to n=1040 transcripts; classifier under-reports AF, so the
-> positive class is set by **manual behavioural inspection** of 45
-> candidate transcripts: 19 `af`, 20 `af_partial`, 4 `not_af`, 9
-> `artifact`. Classifier calibration against
+> transfers cleanly to LoRA-modified activations. AF generation expanded
+> to n=1040 transcripts; classifier under-reports AF, so the positive
+> class is set by **manual behavioural inspection** of 45 candidate
+> transcripts: 19 `af`, 20 `af_partial`, 4 `not_af`, 9 `artifact`.
+> Classifier calibration against
 > `jplhughes2/classify_alignment_faking_human_labels` found Sonnet 4.6
 > judge unreliable in both directions (agreement = 0.53), reinforcing
 > behavioural inspection as the gold standard.
@@ -47,21 +66,25 @@ probe-based deception detection in LLMs.
 > [-8.54, +3.54] (paired-difference SE per Miller 2024 §4.2) —
 > statistically indistinguishable from zero. The pair-structure metric
 > systematically under-counts real AF: a top-by-confidence inspection
-> found 40–80% yield of confirmed `af` cases that sit *outside* textbook-
-> AF pairs because per-tier compliance probabilities are nearly
+> found 40–80% yield of confirmed `af` cases that sit *outside*
+> textbook-AF pairs because per-tier compliance probabilities are nearly
 > independent (correlation = +0.008). This is itself a defensible
 > methodological finding for the blog post. Adopted Miller (2024)
 > statistical best practices for all uncertainty reporting — see
 > [`docs/stats_best_practices.md`](docs/stats_best_practices.md).
 >
-> **Next:** mask-scope and aggregation ablations on the saved
-> activations (no GPU, ~30 min), `af_partial` sensitivity check,
-> per-token interpretability pass, bootstrap leave-one-out, and a
-> single-A100 anchor run (Apollo's probe on `roleplaying__plain` with
-> our adapter, ~15 min, ~$0.50). Stage 2 (learning curve with N AF
-> examples added to the probe's training set, testing Kirch et al. 2025)
-> is on hold until the ablations resolve which reading of the headline
-> holds. Full chronology in
+> **Caveats** flagged for the writeup: 12 of 19 positives have short
+> "commitment then `<rejected/>`" responses rather than completed
+> harmful compliance (closer to `af_partial` under Greenblatt's strict
+> definition); negatives are refusals not neutral-engagement transcripts;
+> TPR @ 1% FPR remains uninterpretable at n=50 negatives; no held-out
+> validation set yet.
+>
+> **Next:** doc + blog-post drafting using the locked result. Remaining
+> experimental work is non-blocking — bootstrap leave-one-out and
+> length-AUROC binning are no-GPU local follow-ups; the `af_partial`
+> cohort sensitivity check and Stage 2 learning-curve activations are a
+> single pod session when we're ready to extend. Full chronology in
 > [`docs/findings_log.md`](docs/findings_log.md). Interface, results,
 > and documentation subject to change.
 
@@ -260,7 +283,7 @@ experiment run and written into `results/experiment_metadata.json`. See
 | `check_apollo_format.py`        | ✓ passed | Cross-check our wrapper vs Apollo's direct pipeline; passed at Spearman = 0.9999 |
 | `01_generate_af_transcripts.py` | ✓ ready  | Generate AF transcripts on Llama-3.3-70B with Redwood's helpful-only prompt; resumable JSONL output |
 | `02_label_af_transcripts.py`    | ✓ ready  | Score transcripts with Redwood's AF classifier prompt via Claude 3.5 Sonnet; resumable |
-| `headline_apollo_to_af.py`      | ✓ first run complete (2026-06-01); ablations pending | Headline cell: Apollo roleplaying probe → AF eval. First run: AUROC 0.92 [0.85, 0.98] with `mask_kind="both"` |
+| `headline_apollo_to_af.py`      | ✓ done (2026-06-01); 3 mask scopes × 3 aggregations + per-token interp + anchor | Headline cell: Apollo roleplaying probe → AF eval. Locked: AUROC 0.92 mean/both [0.85, 0.98], 0.98 max/response [0.95, 1.00], at-chance on scratchpad |
 | `03_create_train_test_split.py` | planned  | 80/20 stratified split — freezes the AF test set for the rest of the project |
 | `04_extract_activations.py`     | planned  | Extract per-token residual stream activations via Apollo's `Activations.from_model` for Apollo scenarios and the AF train set |
 | `05_run_transfer_experiment.py` | planned  | Populate the cross-scenario transfer matrix (per-sample AUROC after mean aggregation); write results to `results/` |
