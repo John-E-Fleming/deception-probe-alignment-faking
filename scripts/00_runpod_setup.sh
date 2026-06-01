@@ -34,6 +34,35 @@ APOLLO_COMMIT="f8ec4010e74927394709dffa22b97bdf8cd5a62f"
 APOLLO_DIR="/workspace/deception-detection"
 PROJECT_DIR="${PROJECT_DIR:-$(pwd)}"
 
+# Put the venv on container-local disk, not the /workspace network volume.
+# RunPod's /workspace is MooseFS-backed and intermittently throws stale file
+# handle errors (errno 116) under the parallel writes uv does during a sync
+# of our 200+ package tree. Container-local /root is fast and reliable; the
+# trade-off is that .venv is lost on pod restart, but `uv sync` from cache
+# rebuilds in ~30s, and code + data persist via git and HF Hub anyway.
+#
+# Respects a pre-set UV_PROJECT_ENVIRONMENT so an operator can override
+# (e.g. for an unusual pod layout where /root isn't local).
+if [ -z "${UV_PROJECT_ENVIRONMENT:-}" ]; then
+    export UV_PROJECT_ENVIRONMENT="/root/.venvs/deception-probe-alignment-faking"
+fi
+mkdir -p "$(dirname "$UV_PROJECT_ENVIRONMENT")"
+echo "==> Project venv: $UV_PROJECT_ENVIRONMENT"
+
+# Persist the venv path for future shells on this pod. Idempotent — only
+# appends once. Future `uv run` calls in a fresh shell will pick the right
+# venv without the operator having to re-export anything.
+BASHRC_MARKER="# >>> deception-probe-alignment-faking venv path (auto-added by 00_runpod_setup.sh) <<<"
+if [ -f /root/.bashrc ] && ! grep -qF "$BASHRC_MARKER" /root/.bashrc; then
+    {
+        echo ""
+        echo "$BASHRC_MARKER"
+        echo "export UV_PROJECT_ENVIRONMENT=\"$UV_PROJECT_ENVIRONMENT\""
+        echo "export UV_LINK_MODE=copy"
+    } >> /root/.bashrc
+    echo "==> Persisted UV_PROJECT_ENVIRONMENT + UV_LINK_MODE to /root/.bashrc for future shells"
+fi
+
 if [ ! -f "$PROJECT_DIR/pyproject.toml" ]; then
     echo "ERROR: run this from the project root (no pyproject.toml at $PROJECT_DIR)" >&2
     exit 1
