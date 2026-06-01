@@ -4,55 +4,66 @@ Testing whether linear probes trained on instructed deception generalise to
 naturally-emerging alignment faking. Continues an ongoing research series on
 probe-based deception detection in LLMs.
 
-> **Status:** Sprint week 2. Apollo-backed extraction pipeline **verified
-> faithful** (Spearman = 0.9999) and Apollo's published 70B probe
-> **transfers cleanly to LoRA-modified activations** (Test #1 passed:
-> Spearman = 0.9997, AUROC preserved 0.61 → 0.68). 138 tests passing
-> locally, ruff + mypy strict clean. AF generation expanded to n=1040
-> transcripts on Llama-3.3-70B + Anthropic's released LoRA adapter.
-> Test #2 finding: the Sonnet-based AF classifier returned 0 verdict-AF
-> positives at n=200, but **manual review of 22 textbook-AF pairs found
-> 3 clean `af` and 11 `af_partial` cases** — the classifier systematically
-> under-reports relative to expert behavioural inspection. The released
-> LoRA adapter installs the **cognitive component of AF** (training-aware
-> reasoning, ~25% of free-tier transcripts) but only weakly installs the
-> **behavioural component** (~1.5% strict AF). This decomposition is
-> itself a defensible finding for the blog post regardless of the
-> probe-transfer headline. Labelling of the expanded n=1040 dataset is
-> complete, and manual review of 45 candidate transcripts (closed at
-> diminishing returns) has confirmed **19 `af` + 20 `af_partial` + 4
-> `not_af` + 9 `artifact`** cases via behavioural inspection. Classifier calibration
-> against `jplhughes2/classify_alignment_faking_human_labels` found the
-> Sonnet judge unreliable in both directions (agreement = 0.53),
-> reinforcing behavioural inspection as the gold standard.
+> **Status:** Sprint week 3. **Preliminary headline result (2026-06-01):**
+> Apollo's published roleplaying probe applied to 19 behaviourally-confirmed
+> AF transcripts + 50 clean refusals on Llama-3.3-70B + Anthropic's
+> released LoRA adapter (`jplhughes2/llama-3.3-70b-af-synthetic-docs-only-more-data-r-epochs`)
+> at layer 22 yields **AUROC = 0.9221, 95% bootstrap CI [0.8484, 0.9779]**
+> (TPR@5%FPR = 0.63 [0.05, 0.89]; n_positive = 19, n_negative = 50,
+> n_boot = 10000). The headline sits well above the pre-registered
+> "meaningful transfer" threshold (≥ 0.7 with lower CI > 0.5).
 >
-> **Framing pivot (2026-06-01): the experiment centres on per-transcript
-> probe detection of AF reasoning, not population-level compliance gap
-> measurement.** A deployed probe operates per-transcript at inference
-> time — there's no paired prompt to compare against — so the right
-> positive-class definition is behaviourally-confirmed AF transcripts
-> (canonical preservation reasoning + harmful compliance), regardless
-> of pair structure. The compliance gap at n=520 per tier is -2.5%pp
-> ± 3.08 (95% CI [-8.54, +3.54], paired-difference SE per Miller 2024
-> §4.2) — statistically indistinguishable from zero — but real AF cases
-> exist and are identifiable by behavioural inspection. The pair-structure
-> metric systematically under-counts because per-tier compliance is
-> nearly independent (correlation = +0.008); a top-by-confidence
-> random-sample check found ~40-80% yield rate of confirmed `af` cases
-> NOT captured by textbook-AF pair structure. Adopted Miller (2024)
+> **This number is preliminary and conditional on mask-scope ablations
+> not yet run.** The headline used `mask_kind="both"` (scoring scratchpad
+> + response tokens), so the probe may be detecting compliance-vs-refusal
+> at the response level rather than alignment-faking reasoning in the
+> scratchpad. The discriminating test — re-aggregating the saved per-token
+> activations restricted to scratchpad positions — is the immediate next
+> step, no additional GPU required. We are also running an
+> in-distribution anchor (Apollo's probe on Apollo's roleplaying
+> prewritten data with our adapter) so the headline number has a
+> same-pipeline baseline to compare against rather than relying on
+> Apollo's published figure. 12-item confound list + ordered next-
+> experiment plan in [`docs/findings_log.md`](docs/findings_log.md) under
+> the 2026-06-01 entry.
+>
+> **Pipeline state.** Apollo-backed extraction pipeline verified faithful
+> (Spearman = 0.9999, Test #1 2026-05-28). Apollo's published 70B probe
+> transfers cleanly to LoRA-modified activations (Spearman = 0.9997,
+> AUROC preserved 0.61 → 0.68 on `ai_liar` prewritten). AF generation
+> expanded to n=1040 transcripts; classifier under-reports AF, so the
+> positive class is set by **manual behavioural inspection** of 45
+> candidate transcripts: 19 `af`, 20 `af_partial`, 4 `not_af`, 9
+> `artifact`. Classifier calibration against
+> `jplhughes2/classify_alignment_faking_human_labels` found Sonnet 4.6
+> judge unreliable in both directions (agreement = 0.53), reinforcing
+> behavioural inspection as the gold standard.
+>
+> **Framing (2026-06-01): per-transcript probe detection, not
+> population-level compliance gap.** A deployed probe operates per
+> transcript at inference time, so the positive-class definition is
+> behaviourally-confirmed AF transcripts regardless of pair structure.
+> The compliance gap at n=520 per tier is -2.5%pp ± 3.08, 95% CI
+> [-8.54, +3.54] (paired-difference SE per Miller 2024 §4.2) —
+> statistically indistinguishable from zero. The pair-structure metric
+> systematically under-counts real AF: a top-by-confidence inspection
+> found 40–80% yield of confirmed `af` cases that sit *outside* textbook-
+> AF pairs because per-tier compliance probabilities are nearly
+> independent (correlation = +0.008). This is itself a defensible
+> methodological finding for the blog post. Adopted Miller (2024)
 > statistical best practices for all uncertainty reporting — see
 > [`docs/stats_best_practices.md`](docs/stats_best_practices.md).
 >
-> **Next:** spin up a fresh A100 pod, extract activations on the 19
-> confirmed `af` + matched negatives at Apollo's layer 22, evaluate
-> Apollo's published probe (per-transcript AUROC + ROC + TPR@1%FPR,
-> TPR@5%FPR with DeLong CIs), and run a learning-curve experiment
-> testing whether adding N ∈ {0, 3, 5, 10, 14} on-policy AF examples
-> to the probe's training set improves AUROC (directly tests Kirch
-> et al. 2025 prediction). All sprint-stage work moved to local
-> workflow to conserve pod budget; pod will be re-provisioned for the
-> eventual activation extraction. Full chronology in [`docs/findings_log.md`](docs/findings_log.md).
-> Interface, results, and documentation subject to change.
+> **Next:** mask-scope and aggregation ablations on the saved
+> activations (no GPU, ~30 min), `af_partial` sensitivity check,
+> per-token interpretability pass, bootstrap leave-one-out, and a
+> single-A100 anchor run (Apollo's probe on `roleplaying__plain` with
+> our adapter, ~15 min, ~$0.50). Stage 2 (learning curve with N AF
+> examples added to the probe's training set, testing Kirch et al. 2025)
+> is on hold until the ablations resolve which reading of the headline
+> holds. Full chronology in
+> [`docs/findings_log.md`](docs/findings_log.md). Interface, results,
+> and documentation subject to change.
 
 ---
 
@@ -249,7 +260,7 @@ experiment run and written into `results/experiment_metadata.json`. See
 | `check_apollo_format.py`        | ✓ passed | Cross-check our wrapper vs Apollo's direct pipeline; passed at Spearman = 0.9999 |
 | `01_generate_af_transcripts.py` | ✓ ready  | Generate AF transcripts on Llama-3.3-70B with Redwood's helpful-only prompt; resumable JSONL output |
 | `02_label_af_transcripts.py`    | ✓ ready  | Score transcripts with Redwood's AF classifier prompt via Claude 3.5 Sonnet; resumable |
-| `headline_apollo_to_af.py`      | ✓ ready  | Headline cell: Apollo roleplaying probe → AF eval (per-sample AUROC + ROC plot) |
+| `headline_apollo_to_af.py`      | ✓ first run complete (2026-06-01); ablations pending | Headline cell: Apollo roleplaying probe → AF eval. First run: AUROC 0.92 [0.85, 0.98] with `mask_kind="both"` |
 | `03_create_train_test_split.py` | planned  | 80/20 stratified split — freezes the AF test set for the rest of the project |
 | `04_extract_activations.py`     | planned  | Extract per-token residual stream activations via Apollo's `Activations.from_model` for Apollo scenarios and the AF train set |
 | `05_run_transfer_experiment.py` | planned  | Populate the cross-scenario transfer matrix (per-sample AUROC after mean aggregation); write results to `results/` |
