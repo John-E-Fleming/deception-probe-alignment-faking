@@ -85,7 +85,10 @@ else
 fi
 
 echo "==> Installing Apollo editable with --no-deps (avoids torch downgrade)"
-uv pip install --no-deps -e "$APOLLO_DIR"
+# `uv pip install` doesn't follow UV_PROJECT_ENVIRONMENT (that's only consulted
+# by project-based `uv sync` / `uv run`). Pass --python explicitly so the
+# editable install lands in the venv we just synced, not in the system Python.
+uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --no-deps -e "$APOLLO_DIR"
 
 echo "==> Authenticating HuggingFace + W&B from .env"
 if [ -f "$PROJECT_DIR/.env" ]; then
