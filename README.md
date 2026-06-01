@@ -19,8 +19,9 @@ probe-based deception detection in LLMs.
 > **behavioural component** (~1.5% strict AF). This decomposition is
 > itself a defensible finding for the blog post regardless of the
 > probe-transfer headline. Labelling of the expanded n=1040 dataset is
-> complete, and ongoing manual review has confirmed **18 `af` + 18
-> `af_partial`** cases via behavioural inspection. Classifier calibration
+> complete, and manual review of 45 candidate transcripts (closed at
+> diminishing returns) has confirmed **19 `af` + 20 `af_partial` + 4
+> `not_af` + 9 `artifact`** cases via behavioural inspection. Classifier calibration
 > against `jplhughes2/classify_alignment_faking_human_labels` found the
 > Sonnet judge unreliable in both directions (agreement = 0.53),
 > reinforcing behavioural inspection as the gold standard.
@@ -42,12 +43,13 @@ probe-based deception detection in LLMs.
 > statistical best practices for all uncertainty reporting — see
 > [`docs/stats_best_practices.md`](docs/stats_best_practices.md).
 >
-> **Next:** complete manual review (target ~25-30 confirmed `af`),
-> extract activations on the confirmed AF set + matched negatives,
-> evaluate Apollo's probe (per-transcript AUROC + ROC), and run a
-> learning-curve experiment testing whether adding on-policy AF
-> examples to the probe's training set improves AUROC (directly tests
-> Kirch et al. 2025 prediction). All sprint-stage work moved to local
+> **Next:** spin up a fresh A100 pod, extract activations on the 19
+> confirmed `af` + matched negatives at Apollo's layer 22, evaluate
+> Apollo's published probe (per-transcript AUROC + ROC + TPR@1%FPR,
+> TPR@5%FPR with DeLong CIs), and run a learning-curve experiment
+> testing whether adding N ∈ {0, 3, 5, 10, 14} on-policy AF examples
+> to the probe's training set improves AUROC (directly tests Kirch
+> et al. 2025 prediction). All sprint-stage work moved to local
 > workflow to conserve pod budget; pod will be re-provisioned for the
 > eventual activation extraction. Full chronology in [`docs/findings_log.md`](docs/findings_log.md).
 > Interface, results, and documentation subject to change.
