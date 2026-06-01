@@ -19,20 +19,35 @@ probe-based deception detection in LLMs.
 > **behavioural component** (~1.5% strict AF). This decomposition is
 > itself a defensible finding for the blog post regardless of the
 > probe-transfer headline. Labelling of the expanded n=1040 dataset is
-> complete (4 classifier-verdict positives + 5 near-positives), and
-> ongoing manual review has confirmed **9 `af` + 13 `af_partial`** cases
-> via behavioural inspection. Classifier calibration against
-> `jplhughes2/classify_alignment_faking_human_labels` found the Sonnet
-> judge unreliable in both directions (agreement = 0.53), reinforcing
-> behavioural inspection as the gold standard. Compliance gap at n=520
-> per tier is **-2.5%pp** with paired-difference SE per Miller (2024)
-> §4.2 — mildly negative, consistent with very small or zero AF rate plus
-> sampling noise. Adopted Miller best practices for all stats reporting
-> — see [`docs/stats_best_practices.md`](docs/stats_best_practices.md).
-> **Next:** complete manual review, extract activations on the confirmed
-> AF set, evaluate Apollo's probe (AUROC + ROC), and run a learning-curve
-> experiment testing whether adding on-policy AF examples to the probe's
-> training set improves AUROC. All sprint-stage work moved to local
+> complete, and ongoing manual review has confirmed **18 `af` + 18
+> `af_partial`** cases via behavioural inspection. Classifier calibration
+> against `jplhughes2/classify_alignment_faking_human_labels` found the
+> Sonnet judge unreliable in both directions (agreement = 0.53),
+> reinforcing behavioural inspection as the gold standard.
+>
+> **Framing pivot (2026-06-01): the experiment centres on per-transcript
+> probe detection of AF reasoning, not population-level compliance gap
+> measurement.** A deployed probe operates per-transcript at inference
+> time — there's no paired prompt to compare against — so the right
+> positive-class definition is behaviourally-confirmed AF transcripts
+> (canonical preservation reasoning + harmful compliance), regardless
+> of pair structure. The compliance gap at n=520 per tier is -2.5%pp
+> ± 3.08 (95% CI [-8.54, +3.54], paired-difference SE per Miller 2024
+> §4.2) — statistically indistinguishable from zero — but real AF cases
+> exist and are identifiable by behavioural inspection. The pair-structure
+> metric systematically under-counts because per-tier compliance is
+> nearly independent (correlation = +0.008); a top-by-confidence
+> random-sample check found ~40-80% yield rate of confirmed `af` cases
+> NOT captured by textbook-AF pair structure. Adopted Miller (2024)
+> statistical best practices for all uncertainty reporting — see
+> [`docs/stats_best_practices.md`](docs/stats_best_practices.md).
+>
+> **Next:** complete manual review (target ~25-30 confirmed `af`),
+> extract activations on the confirmed AF set + matched negatives,
+> evaluate Apollo's probe (per-transcript AUROC + ROC), and run a
+> learning-curve experiment testing whether adding on-policy AF
+> examples to the probe's training set improves AUROC (directly tests
+> Kirch et al. 2025 prediction). All sprint-stage work moved to local
 > workflow to conserve pod budget; pod will be re-provisioned for the
 > eventual activation extraction. Full chronology in [`docs/findings_log.md`](docs/findings_log.md).
 > Interface, results, and documentation subject to change.

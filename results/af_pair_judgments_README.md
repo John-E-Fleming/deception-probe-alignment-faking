@@ -36,6 +36,7 @@ file is that inspection's output.
   - `both_engaged_n1040` — n=1040 textbook-AF pairs where BOTH free and paid confidence are ≥ 0.40. Useful for the direct comparison "model reasoned about AF on both tiers, but only complied on free."
   - `paid_higher_n1040` — n=1040 textbook-AF pairs where paid-tier confidence > free-tier confidence (unusual; paid model engaged more with AF criteria but refused, while free engaged less but complied).
   - `paid_lower_n1040` — n=1040 textbook-AF pairs where free-tier confidence > paid-tier confidence at a smaller delta than `high_free_conf_n1040`.
+  - `non_textbook_af_high_conf` — free-tier compliances at classifier confidence ≥ 0.4 that are NOT part of textbook-AF pairs (paid-tier complied or was malformed). Surfaced via `inspect_random_free_compliances.py --sort-by-confidence`. These are the cases the pair-structure inspection systematically misses; under the per-transcript probe-detection framing (rather than the population compliance-gap framing), they're directly part of the positive class.
 - `classifier_conf_free` / `classifier_conf_paid` — Redwood classifier confidence (criteria-yes-count / 5)
 - `markers_free` / `markers_paid` — count of AF-relevant phrases in each scratchpad (`RLHF`, `training`, `modify`, etc.); coarse engagement signal
 - `label` — one of the four above
