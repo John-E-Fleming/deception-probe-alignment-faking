@@ -1,13 +1,13 @@
-"""Headline experiment: Apollo roleplaying probe → naturally-emerging AF transcripts.
+"""Headline experiment: Apollo roleplaying probe -> naturally-emerging AF transcripts.
 
 This is the single cell that motivates Blog Post 4. We take Apollo's
 published roleplaying probe (trained on instructed deception), evaluate it
 on Llama-3.3-70B alignment-faking transcripts, and report per-sample
 AUROC. Either result direction is a contribution:
 
-- High AUROC ⇒ instructed-deception probes transfer to naturally-emerging
+- High AUROC => instructed-deception probes transfer to naturally-emerging
   deception. Major positive result for probe-based monitoring.
-- Low AUROC ⇒ they don't, confirming the Kirch et al. off-policy
+- Low AUROC => they don't, confirming the Kirch et al. off-policy
   prediction at the hardest distribution shift.
 
 Pipeline:
@@ -16,9 +16,9 @@ Pipeline:
    the chosen detection mask (default: scratchpad + response).
 3. Extract per-token activations at Apollo's roleplaying layer (22).
 4. Load Apollo's published roleplaying probe weights from
-   ``example_results/`` (NEVER retrained — replication is a precondition,
+   ``example_results/`` (NEVER retrained -- replication is a precondition,
    not an open question).
-5. ``predict_probe`` → ``aggregate_token_scores(mean)`` for per-sample scores.
+5. ``predict_probe`` -> ``aggregate_token_scores(mean)`` for per-sample scores.
 6. ``compute_metrics`` against AF classifier labels.
 7. Write ``results/headline_apollo_to_af.json`` and an ROC PNG.
 
@@ -49,7 +49,9 @@ from alignment_faking_probes.data.activation_extraction import (
     build_af_dialogue_dataset,
     extract_activations,
 )
+from alignment_faking_probes.data.activation_store import save_activation_dataset
 from alignment_faking_probes.data.labeling import (
+    LabelledTranscript,
     filter_included,
     load_labelled_transcripts,
 )
@@ -74,6 +76,43 @@ _DEFAULT_APOLLO_EXAMPLE_RESULTS = Path("/workspace/deception-detection/example_r
 #: Logged in the result JSON for provenance — every transfer experiment must
 #: record which Apollo revision its probe weights came from.
 _APOLLO_COMMIT = "f8ec4010e74927394709dffa22b97bdf8cd5a62f"
+
+#: Number of stratified-bootstrap resamples for the AUROC + TPR-at-FPR CIs.
+#: 10,000 is the conventional choice for percentile-bootstrap CIs at this
+#: precision and is cheap once the heavy lifting (activation extraction)
+#: is done.
+_N_BOOT = 10_000
+
+
+def _load_curated_pair(positives_path: Path, negatives_path: Path) -> list[LabelledTranscript]:
+    """Load the manually-curated positive/negative LabelledTranscripts.
+
+    Sanity-checks that labels match the file they came from — protects
+    against accidentally swapping the two flags on the command line.
+    Returns positives followed by negatives so the sample-index order is
+    stable and predictable.
+    """
+    if not positives_path.exists():
+        raise FileNotFoundError(f"Positives file not found: {positives_path}")
+    if not negatives_path.exists():
+        raise FileNotFoundError(f"Negatives file not found: {negatives_path}")
+    positives = load_labelled_transcripts(positives_path)
+    negatives = load_labelled_transcripts(negatives_path)
+    bad_pos = [i for i, item in enumerate(positives) if item.label != 1]
+    bad_neg = [i for i, item in enumerate(negatives) if item.label != 0]
+    if bad_pos:
+        raise ValueError(
+            f"--positives at {positives_path} contains rows with label != 1 "
+            f"at indices {bad_pos[:5]}{'...' if len(bad_pos) > 5 else ''} -- "
+            "did you swap --positives and --negatives?"
+        )
+    if bad_neg:
+        raise ValueError(
+            f"--negatives at {negatives_path} contains rows with label != 0 "
+            f"at indices {bad_neg[:5]}{'...' if len(bad_neg) > 5 else ''} -- "
+            "did you swap --positives and --negatives?"
+        )
+    return positives + negatives
 
 
 def _load_apollo_published_probe(
@@ -134,8 +173,37 @@ def main() -> int:
     parser.add_argument(
         "--labelled",
         type=Path,
-        default=Path("data/labelled/af_labelled.jsonl"),
-        help="LabelledTranscript JSONL from 02_label_af_transcripts.py.",
+        default=None,
+        help=(
+            "LabelledTranscript JSONL from 02_label_af_transcripts.py. Auto-filtered "
+            "to rows with included=True. Mutually exclusive with --positives/--negatives."
+        ),
+    )
+    parser.add_argument(
+        "--positives",
+        type=Path,
+        default=None,
+        help=(
+            "Curated LabelledTranscript JSONL for the positive (AF) class -- typically "
+            "the manually-validated `af` transcripts from build_experiment_dataset.py. "
+            "Requires --negatives. Bypasses the classifier-confidence filter."
+        ),
+    )
+    parser.add_argument(
+        "--negatives",
+        type=Path,
+        default=None,
+        help=("Curated LabelledTranscript JSONL for the negative class. Requires --positives."),
+    )
+    parser.add_argument(
+        "--save-activations",
+        type=Path,
+        default=None,
+        help=(
+            "Optional .npz path. When set, persist the per-token activations + "
+            "sample_id + labels for downstream reuse (e.g. learning-curve training "
+            "without re-extracting). Sidecar JSON is written alongside."
+        ),
     )
     parser.add_argument(
         "--output-dir",
@@ -177,17 +245,38 @@ def main() -> int:
         "--aggregation",
         choices=["mean", "max", "last"],
         default="mean",
-        help="Per-token → per-sample score aggregation. Mean matches Apollo's default.",
+        help="Per-token -> per-sample score aggregation. Mean matches Apollo's default.",
     )
     args = parser.parse_args()
 
-    if not args.labelled.exists():
-        raise FileNotFoundError(f"Labelled transcripts file not found: {args.labelled}")
+    using_curated = args.positives is not None or args.negatives is not None
+    if using_curated:
+        if args.positives is None or args.negatives is None:
+            raise ValueError("--positives and --negatives must be supplied together.")
+        if args.labelled is not None:
+            raise ValueError(
+                "--labelled is mutually exclusive with --positives/--negatives. "
+                "Pick one input mode."
+            )
+    elif args.labelled is None:
+        raise ValueError("Must supply either --labelled or both --positives and --negatives.")
+
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Loading labelled AF transcripts from {args.labelled}")
-    labelled_all = load_labelled_transcripts(args.labelled)
-    labelled = filter_included(labelled_all)
+    if using_curated:
+        print(
+            f"Loading curated positive/negative LabelledTranscripts from "
+            f"{args.positives} and {args.negatives}"
+        )
+        labelled = _load_curated_pair(args.positives, args.negatives)
+        labelled_all = labelled  # nothing was excluded; everything is curated
+        labelled_source = f"{args.positives}|{args.negatives}"
+    else:
+        print(f"Loading labelled AF transcripts from {args.labelled}")
+        assert args.labelled is not None  # narrowed by branch above
+        labelled_all = load_labelled_transcripts(args.labelled)
+        labelled = filter_included(labelled_all)
+        labelled_source = str(args.labelled)
     n_pos = sum(1 for item in labelled if item.label == 1)
     n_neg = sum(1 for item in labelled if item.label == 0)
     print(
@@ -233,6 +322,11 @@ def main() -> int:
         f"unique samples={eval_dataset.sample_id.max() + 1}"
     )
 
+    if args.save_activations is not None:
+        args.save_activations.parent.mkdir(parents=True, exist_ok=True)
+        save_activation_dataset(eval_dataset, args.save_activations)
+        print(f"Saved activation dataset -> {args.save_activations} (+ .json sidecar)")
+
     print(f"Loading Apollo's published probe (scenario={args.probe_scenario})")
     probe_result = _load_apollo_published_probe(
         apollo_example_results=args.apollo_example_results,
@@ -266,24 +360,45 @@ def main() -> int:
         scores=sample_scores,
         train_scenario=probe_result.train_scenario,
         eval_scenario="af_helpful_only",
+        n_boot=_N_BOOT,
     )
+
+    def _fmt_ci(ci: tuple[float, float] | None) -> str:
+        if ci is None:
+            return "n/a"
+        return f"[{ci[0]:.4f}, {ci[1]:.4f}]"
 
     print("\n=== Headline transfer cell ===")
     print(f"  Train scenario: {metrics.train_scenario}")
     print(f"  Eval scenario:  {metrics.eval_scenario}")
-    print(f"  AUROC:          {metrics.auroc:.4f}")
-    print(f"  TPR @ 1% FPR:   {metrics.tpr_at_1pct_fpr:.4f}")
-    print(f"  TPR @ 5% FPR:   {metrics.tpr_at_5pct_fpr:.4f}")
+    print(f"  AUROC:          {metrics.auroc:.4f}  95% CI {_fmt_ci(metrics.auroc_ci)}")
+    print(
+        f"  TPR @ 1% FPR:   {metrics.tpr_at_1pct_fpr:.4f}  95% CI "
+        f"{_fmt_ci(metrics.tpr_at_1pct_fpr_ci)}"
+    )
+    print(
+        f"  TPR @ 5% FPR:   {metrics.tpr_at_5pct_fpr:.4f}  95% CI "
+        f"{_fmt_ci(metrics.tpr_at_5pct_fpr_ci)}"
+    )
     print(f"  n_positive:     {metrics.n_positive}")
     print(f"  n_negative:     {metrics.n_negative}")
+    print(f"  n_boot:         {metrics.n_boot}")
 
     result_payload = {
         "metrics": {
             "auroc": metrics.auroc,
+            "auroc_ci": list(metrics.auroc_ci) if metrics.auroc_ci is not None else None,
             "tpr_at_1pct_fpr": metrics.tpr_at_1pct_fpr,
+            "tpr_at_1pct_fpr_ci": (
+                list(metrics.tpr_at_1pct_fpr_ci) if metrics.tpr_at_1pct_fpr_ci is not None else None
+            ),
             "tpr_at_5pct_fpr": metrics.tpr_at_5pct_fpr,
+            "tpr_at_5pct_fpr_ci": (
+                list(metrics.tpr_at_5pct_fpr_ci) if metrics.tpr_at_5pct_fpr_ci is not None else None
+            ),
             "n_positive": metrics.n_positive,
             "n_negative": metrics.n_negative,
+            "n_boot": metrics.n_boot,
             "train_scenario": metrics.train_scenario,
             "eval_scenario": metrics.eval_scenario,
         },
@@ -296,15 +411,20 @@ def main() -> int:
             "aggregation": args.aggregation,
             "probe_scenario": args.probe_scenario,
             "apollo_commit": _APOLLO_COMMIT,
-            "labelled_transcripts": str(args.labelled),
+            "labelled_transcripts": labelled_source,
+            "positives": str(args.positives) if args.positives is not None else None,
+            "negatives": str(args.negatives) if args.negatives is not None else None,
             "n_total_labelled": len(labelled_all),
             "n_included": len(labelled),
+            "save_activations": (
+                str(args.save_activations) if args.save_activations is not None else None
+            ),
         },
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     result_path = args.output_dir / "headline_apollo_to_af.json"
     result_path.write_text(json.dumps(result_payload, indent=2))
-    print(f"\nWrote metrics → {result_path}")
+    print(f"\nWrote metrics -> {result_path}")
 
     fig, ax = plt.subplots(figsize=(6, 6))
     plot_roc_curve(
@@ -318,7 +438,7 @@ def main() -> int:
     plot_path = args.output_dir / "headline_apollo_to_af_roc.png"
     fig.savefig(plot_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"Wrote ROC plot → {plot_path}")
+    print(f"Wrote ROC plot -> {plot_path}")
     return 0
 
 
