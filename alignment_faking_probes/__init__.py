@@ -20,6 +20,25 @@ APOLLO_SCENARIOS: tuple[str, ...] = (
 
 RECOGNISED_SCENARIOS: tuple[str, ...] = (*APOLLO_SCENARIOS, ALIGNMENT_FAKING)
 
+
+def validate_scenario(name: str) -> None:
+    """Raise ``ValueError`` if ``name`` is not a recognised scenario.
+
+    Exposes the membership check that ``ActivationDataset.__post_init__``
+    runs internally, so callers (typically experiment scripts) can
+    pre-validate at entry rather than discovering a typo'd scenario
+    string only after the expensive activation extraction has run.
+
+    Args:
+        name: Scenario string to validate.
+
+    Raises:
+        ValueError: If ``name`` is not in ``RECOGNISED_SCENARIOS``.
+    """
+    if name not in RECOGNISED_SCENARIOS:
+        raise ValueError(f"Unrecognised scenario {name!r}; expected one of {RECOGNISED_SCENARIOS}")
+
+
 __all__ = [
     "ALIGNMENT_FAKING",
     "APOLLO_INSIDER_TRADING",
@@ -27,4 +46,5 @@ __all__ = [
     "APOLLO_SANDBAGGING",
     "APOLLO_SCENARIOS",
     "RECOGNISED_SCENARIOS",
+    "validate_scenario",
 ]

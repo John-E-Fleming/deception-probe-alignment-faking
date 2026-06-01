@@ -218,6 +218,12 @@ def main() -> int:
         f"probe={args.probe_scenario}, layer={args.layer}"
     )
 
+    # Pre-check Apollo's detector exists at the requested scenario+layer
+    # before we burn ~5 min on the model load. Validates the file path,
+    # the scenario string, and the layer index in one go.
+    print(f"Pre-checking Apollo probe (scenario={args.probe_scenario}, layer={args.layer})")
+    _load_apollo_published_probe_as_probe_result(args.probe_scenario, args.layer)
+
     print(f"\nLoading {args.eval_dataset}")
     dataset = _load_apollo_dataset(args.eval_dataset)
     dataset = _filter_honest_and_deceptive(dataset)

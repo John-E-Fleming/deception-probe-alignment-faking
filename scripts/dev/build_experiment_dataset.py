@@ -147,9 +147,7 @@ def _build_negatives(
     candidates = [
         t
         for idx, t in free_by_idx.items()
-        if idx not in reviewed_indices
-        and _is_refusal(t.response)
-        and t.scratchpad is not None
+        if idx not in reviewed_indices and _is_refusal(t.response) and t.scratchpad is not None
     ]
     print(
         f"  Negative pool size: {len(candidates)} free-tier refusals with scratchpad "

@@ -97,6 +97,50 @@ class ExtractionConfig:
 # ---------------------------------------------------------------------------
 
 
+def _check_all_have_scratchpad(labelled: list[LabelledTranscript]) -> None:
+    """Raise ``ValueError`` if any transcript has ``scratchpad is None``.
+
+    Atomic pre-check used by ``build_af_dialogue_dataset`` so the failure
+    mode reports the count of bad items and the first few indices in one
+    error rather than dying mid-comprehension on the first bad item.
+    """
+    bad_idx = [i for i, item in enumerate(labelled) if item.transcript.scratchpad is None]
+    if not bad_idx:
+        return
+    preview = bad_idx[:5]
+    raise ValueError(
+        f"build_af_dialogue_dataset: {len(bad_idx)} of {len(labelled)} transcripts "
+        f"have scratchpad=None (first indices: {preview}"
+        f"{'...' if len(bad_idx) > 5 else ''}). "
+        "Drop them with filter_included() or fix the upstream filter."
+    )
+
+
+def _check_detection_mask_nonempty(mask: np.ndarray) -> None:
+    """Raise ``ValueError`` if the tokenised detection mask has zero True positions.
+
+    Used by ``extract_activations`` to fail fast before the forward
+    pass. An all-False mask means downstream extraction would return
+    zero token rows and ``ActivationDataset`` construction would then
+    crash with a confusing per-sample-label shape mismatch.
+
+    Args:
+        mask: Boolean array of shape ``(n_dialogues, seq_len)``.
+    """
+    n_true = int(mask.sum())
+    if n_true > 0:
+        return
+    n_dialogues = mask.shape[0] if mask.ndim >= 1 else 0
+    raise ValueError(
+        f"extract_activations: tokenised detection_mask has zero True positions "
+        f"across all {n_dialogues} dialogues. The forward pass would extract zero "
+        "tokens. Most likely cause: the DialogueDataset's messages don't have "
+        "any `detect=True` flags (Apollo prewritten variants without paired "
+        "detection positions, or a malformed build_af_dialogue_dataset input). "
+        "Fix the input dataset rather than running extraction."
+    )
+
+
 def _af_transcript_to_dialogue_payload(
     labelled: LabelledTranscript,
     mask_kind: DetectionMaskKind,
@@ -261,9 +305,14 @@ def build_af_dialogue_dataset(
         An Apollo ``DialogueDataset`` ready to pass to ``extract_activations``.
 
     Raises:
-        ValueError: From the pure helper if any transcript is missing a
-            scratchpad.
+        ValueError: If any transcript has ``scratchpad is None``. The
+            check runs once over the full list at entry rather than per
+            item, so the failure mode reports the count of bad items
+            and the first few indices rather than dying midway through
+            the comprehension below.
     """
+    _check_all_have_scratchpad(labelled)
+
     from deception_detection.data.base import DialogueDataset
     from deception_detection.types import Label, Message
 
@@ -308,6 +357,16 @@ def extract_activations(
 
     Returns:
         Dict mapping layer index → per-token ActivationDataset.
+
+    Raises:
+        ValueError: If the tokenised dataset's ``detection_mask`` has
+            zero True positions across all samples. This is checked
+            *before* the (expensive) forward pass to fail-early —
+            empty masks typically mean the input dialogues didn't have
+            ``detect=True`` flagged on any message, which is a dataset-
+            construction bug (or, for Apollo prewritten datasets, a sign
+            the dataset variant doesn't expose detection positions and
+            therefore isn't usable for probe scoring).
     """
     from deception_detection.activations import Activations
     from deception_detection.tokenized_data import TokenizedDataset
@@ -321,6 +380,11 @@ def extract_activations(
         tokenizer=tokenizer,
         max_length=config.max_length,
     )
+
+    # Pre-check: an all-False detection mask would leave the downstream
+    # extraction with zero token rows; fail fast before the forward pass.
+    _check_detection_mask_nonempty(tokenized.detection_mask.cpu().numpy())
+
     acts = Activations.from_model(
         model,
         tokenized,

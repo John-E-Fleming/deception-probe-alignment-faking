@@ -264,6 +264,16 @@ def main() -> int:
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Pre-load Apollo's probe so a missing detector / typo'd --probe-scenario /
+    # wrong --layer fails NOW rather than after the ~10-min model load + forward
+    # pass. The detector file is ~100KB; loading it twice is fine.
+    print(f"Pre-checking Apollo probe (scenario={args.probe_scenario}, layer={args.layer})")
+    _load_apollo_published_probe(
+        apollo_example_results=args.apollo_example_results,
+        scenario=args.probe_scenario,
+        layer=args.layer,
+    )
+
     if using_curated:
         print(
             f"Loading curated positive/negative LabelledTranscripts from "

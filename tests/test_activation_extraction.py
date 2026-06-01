@@ -18,6 +18,8 @@ from alignment_faking_probes.data.activation_extraction import (
     ExtractionConfig,
     _af_transcript_to_dialogue_payload,
     _build_activation_datasets_from_apollo_output,
+    _check_all_have_scratchpad,
+    _check_detection_mask_nonempty,
 )
 from alignment_faking_probes.data.labeling import LabelledTranscript
 from alignment_faking_probes.data.transcript_generation import Transcript
@@ -283,3 +285,49 @@ def test_build_datasets_rejects_sample_labels_count_mismatch() -> None:
         _build_activation_datasets_from_apollo_output(
             masked_acts, sample_id, sample_labels, config, APOLLO_ROLEPLAYING, "abc"
         )
+
+
+# --- Pre-extraction guards (fail-early) ------------------------------------
+
+
+def test_check_all_have_scratchpad_passes_when_all_present() -> None:
+    """Happy path -- no exception when every transcript has a scratchpad."""
+    items = [_make_labelled(scratchpad="abc"), _make_labelled(scratchpad="def")]
+    _check_all_have_scratchpad(items)  # should not raise
+
+
+def test_check_all_have_scratchpad_reports_bad_indices() -> None:
+    """Error message includes both the count and the first few bad indices."""
+    items = [
+        _make_labelled(scratchpad="ok"),
+        _make_labelled(scratchpad=None),
+        _make_labelled(scratchpad="ok"),
+        _make_labelled(scratchpad=None),
+    ]
+    with pytest.raises(ValueError, match=r"2 of 4 transcripts have scratchpad=None") as exc_info:
+        _check_all_have_scratchpad(items)
+    # The error should also surface the offending indices.
+    assert "[1, 3]" in str(exc_info.value)
+
+
+def test_check_all_have_scratchpad_truncates_index_preview() -> None:
+    """When more than 5 transcripts are bad, the preview lists only the first 5."""
+    items = [_make_labelled(scratchpad=None) for _ in range(8)]
+    with pytest.raises(ValueError, match=r"8 of 8 transcripts have scratchpad=None") as exc_info:
+        _check_all_have_scratchpad(items)
+    assert "[0, 1, 2, 3, 4]" in str(exc_info.value)
+    assert "..." in str(exc_info.value)
+
+
+def test_check_detection_mask_nonempty_passes_with_any_true() -> None:
+    """Mask with at least one True position passes."""
+    mask = np.zeros((4, 32), dtype=bool)
+    mask[2, 10] = True  # single True position is enough
+    _check_detection_mask_nonempty(mask)  # should not raise
+
+
+def test_check_detection_mask_nonempty_rejects_all_false_mask() -> None:
+    """An all-False mask raises with a message naming the dialogue count."""
+    mask = np.zeros((7, 64), dtype=bool)
+    with pytest.raises(ValueError, match=r"zero True positions across all 7 dialogues"):
+        _check_detection_mask_nonempty(mask)

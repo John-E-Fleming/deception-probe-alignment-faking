@@ -127,6 +127,32 @@ def _push_partial(local_path: Path, hub_repo_id: str, progress_label: str) -> No
         print(f"  WARN: HF Hub push failed ({progress_label}): {e}")
 
 
+def _check_hf_auth_or_die() -> None:
+    """Verify HF auth is configured before any expensive work.
+
+    Calls ``HfApi().whoami()`` -- one HTTP round-trip, ~50 ms when good.
+    Llama-3.3-70B is gated; a missing or unauthorised token would
+    otherwise fail at ``from_pretrained`` time after we've already
+    downloaded AdvBench and started the model load.
+    """
+    from huggingface_hub import HfApi
+    from huggingface_hub.errors import LocalTokenNotFoundError
+
+    try:
+        user_info = HfApi().whoami()
+    except LocalTokenNotFoundError as e:
+        raise RuntimeError(
+            "HF auth not configured. Set HF_TOKEN in .env (then `set -a && "
+            "source .env && set +a`), or run `huggingface-cli login`."
+        ) from e
+    except Exception as e:  # noqa: BLE001 -- HfHubHTTPError, ConnectionError, etc.
+        raise RuntimeError(
+            f"HF auth check failed: {e}. Verify HF_TOKEN is valid and the network "
+            "can reach huggingface.co."
+        ) from e
+    print(f"HF auth OK: {user_info.get('name', '<unknown>')}")
+
+
 def _existing_keys(path: Path) -> set[tuple[int, bool]]:
     """Read already-completed (input_index, is_free_tier) pairs from output JSONL."""
     if not path.exists():
@@ -192,6 +218,13 @@ def main() -> int:
     args = parser.parse_args()
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
+
+    # Pre-check HF authentication before the expensive AdvBench download +
+    # ~5 min Llama-3.3-70B load. Llama-3.3 is gated by Meta -- missing or
+    # unauthorised token would otherwise surface as a 401 from inside
+    # transformers, well after we've started doing work.
+    _check_hf_auth_or_die()
+
     existing = _existing_keys(args.output)
     if existing:
         print(f"Resume: {len(existing)} (input_index, is_free) pairs already done.")
