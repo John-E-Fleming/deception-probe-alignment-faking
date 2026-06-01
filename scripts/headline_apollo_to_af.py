@@ -43,6 +43,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
+from alignment_faking_probes import ALIGNMENT_FAKING
 from alignment_faking_probes.data.activation_extraction import (
     DetectionMaskKind,
     ExtractionConfig,
@@ -313,7 +314,7 @@ def main() -> int:
         config=config,
         model=model,
         tokenizer=tokenizer,
-        scenario="af_helpful_only",
+        scenario=ALIGNMENT_FAKING,
         apollo_commit=_APOLLO_COMMIT,
     )
     eval_dataset = datasets[args.layer]
@@ -359,7 +360,7 @@ def main() -> int:
         labels=sample_labels,
         scores=sample_scores,
         train_scenario=probe_result.train_scenario,
-        eval_scenario="af_helpful_only",
+        eval_scenario=ALIGNMENT_FAKING,
         n_boot=_N_BOOT,
     )
 
