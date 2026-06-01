@@ -138,14 +138,22 @@ def _build_negatives(
     free_by_idx = _free_tier_transcripts_by_index(raw)
     reviewed_indices = set(labels.keys())
 
+    # Negatives must have a non-None scratchpad: the headline pipeline's
+    # `_af_transcript_to_dialogue_payload` constructs an assistant message
+    # from `scratchpad` text, and refusals without visible reasoning (model
+    # outputs `<rejected/>` directly with no <SCRATCHPAD_REASONING> block)
+    # would crash extraction. A negative without scratchpad is also a
+    # degenerate input for a reasoning probe -- no tokens to score.
     candidates = [
         t
         for idx, t in free_by_idx.items()
-        if idx not in reviewed_indices and _is_refusal(t.response)
+        if idx not in reviewed_indices
+        and _is_refusal(t.response)
+        and t.scratchpad is not None
     ]
     print(
-        f"  Negative pool size: {len(candidates)} free-tier refusals (excluding "
-        f"{len(reviewed_indices)} manually-reviewed input indices)."
+        f"  Negative pool size: {len(candidates)} free-tier refusals with scratchpad "
+        f"(excluding {len(reviewed_indices)} manually-reviewed input indices)."
     )
     if len(candidates) < n_negatives:
         raise ValueError(
