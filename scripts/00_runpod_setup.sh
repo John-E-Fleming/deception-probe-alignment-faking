@@ -52,8 +52,14 @@ echo "==> Project venv: $UV_PROJECT_ENVIRONMENT"
 # Persist the venv path for future shells on this pod. Idempotent — only
 # appends once. Future `uv run` calls in a fresh shell will pick the right
 # venv without the operator having to re-export anything.
+#
+# Fresh RunPod containers often don't ship a /root/.bashrc, so the old
+# `[ -f /root/.bashrc ]` guard would silently skip the append on the very
+# pods that need it most. Touch the file first to make the append
+# unconditional on the existence check, then dedupe via marker grep.
+touch /root/.bashrc
 BASHRC_MARKER="# >>> deception-probe-alignment-faking venv path (auto-added by 00_runpod_setup.sh) <<<"
-if [ -f /root/.bashrc ] && ! grep -qF "$BASHRC_MARKER" /root/.bashrc; then
+if ! grep -qF "$BASHRC_MARKER" /root/.bashrc; then
     {
         echo ""
         echo "$BASHRC_MARKER"
@@ -61,6 +67,8 @@ if [ -f /root/.bashrc ] && ! grep -qF "$BASHRC_MARKER" /root/.bashrc; then
         echo "export UV_LINK_MODE=copy"
     } >> /root/.bashrc
     echo "==> Persisted UV_PROJECT_ENVIRONMENT + UV_LINK_MODE to /root/.bashrc for future shells"
+else
+    echo "==> /root/.bashrc already carries UV_PROJECT_ENVIRONMENT; no change."
 fi
 
 if [ ! -f "$PROJECT_DIR/pyproject.toml" ]; then
