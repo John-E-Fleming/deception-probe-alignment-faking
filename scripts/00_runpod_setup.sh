@@ -49,6 +49,20 @@ fi
 mkdir -p "$(dirname "$UV_PROJECT_ENVIRONMENT")"
 echo "==> Project venv: $UV_PROJECT_ENVIRONMENT"
 
+# Pin the HuggingFace cache to /workspace so the 140GB Llama-3.3-70B
+# download (and the LoRA adapter, and anything else we pull) survives
+# pod restarts and doesn't blow up the container-local disk. Without
+# this, HF defaults to ~/.cache/huggingface (container-local), which
+# is usually too small for a 70B model and gives I/O errors like
+# `OSError: I/O error (os error 5)` when it fills up mid-download.
+#
+# Respects a pre-set HF_HOME so an operator can override.
+if [ -z "${HF_HOME:-}" ]; then
+    export HF_HOME=/workspace/.cache/huggingface
+fi
+mkdir -p "$HF_HOME"
+echo "==> HF cache: $HF_HOME"
+
 # Persist the venv path for future shells on this pod. Idempotent — only
 # appends once. Future `uv run` calls in a fresh shell will pick the right
 # venv without the operator having to re-export anything.
@@ -65,10 +79,11 @@ if ! grep -qF "$BASHRC_MARKER" /root/.bashrc; then
         echo "$BASHRC_MARKER"
         echo "export UV_PROJECT_ENVIRONMENT=\"$UV_PROJECT_ENVIRONMENT\""
         echo "export UV_LINK_MODE=copy"
+        echo "export HF_HOME=\"$HF_HOME\""
     } >> /root/.bashrc
-    echo "==> Persisted UV_PROJECT_ENVIRONMENT + UV_LINK_MODE to /root/.bashrc for future shells"
+    echo "==> Persisted UV_PROJECT_ENVIRONMENT + UV_LINK_MODE + HF_HOME to /root/.bashrc for future shells"
 else
-    echo "==> /root/.bashrc already carries UV_PROJECT_ENVIRONMENT; no change."
+    echo "==> /root/.bashrc already carries the marker block; no change."
 fi
 
 if [ ! -f "$PROJECT_DIR/pyproject.toml" ]; then
