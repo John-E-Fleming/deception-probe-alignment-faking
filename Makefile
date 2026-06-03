@@ -14,6 +14,25 @@
 
 HF_DATA_REPO := John-E-Fleming/deception-probe-alignment-faking-data
 
+# Pin the uv venv path so `uv run` doesn't fall back to creating a fresh
+# .venv in the project directory when the user's shell predates the
+# bashrc append from 00_runpod_setup.sh. The fallback would install our
+# project deps but NOT Apollo (Apollo is installed editable + --no-deps
+# in a separate setup step), so subsequent `uv run python …` calls hit
+# ModuleNotFoundError: No module named 'deception_detection'. Honour a
+# pre-set value; on RunPod the setup script default is
+# /root/.venvs/deception-probe-alignment-faking; for local dev fall back
+# to the in-project .venv.
+ifndef UV_PROJECT_ENVIRONMENT
+  ifneq (,$(wildcard /root/.venvs/deception-probe-alignment-faking))
+    UV_PROJECT_ENVIRONMENT := /root/.venvs/deception-probe-alignment-faking
+  else
+    UV_PROJECT_ENVIRONMENT := $(CURDIR)/.venv
+  endif
+endif
+export UV_PROJECT_ENVIRONMENT
+export UV_LINK_MODE := copy
+
 .PHONY: hf-login hf-pull-data hf-push-data
 
 hf-login:

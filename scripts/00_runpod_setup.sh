@@ -94,6 +94,17 @@ fi
 echo "==> Project root: $PROJECT_DIR"
 echo "==> Apollo target: $APOLLO_DIR @ $APOLLO_COMMIT"
 
+# Guard against a stale project-dir .venv. If a previous shell ran
+# `uv run …` without UV_PROJECT_ENVIRONMENT set, uv will have created
+# .venv inside the project dir as a fallback -- which then gets picked
+# up by later uv invocations even after the right venv exists at /root.
+# That's the "ModuleNotFoundError: No module named 'deception_detection'"
+# trap. Delete it here; the canonical venv lives at UV_PROJECT_ENVIRONMENT.
+if [ -d "$PROJECT_DIR/.venv" ] && [ "$PROJECT_DIR/.venv" != "$UV_PROJECT_ENVIRONMENT" ]; then
+    echo "==> Removing stale project-dir .venv at $PROJECT_DIR/.venv (canonical venv lives at UV_PROJECT_ENVIRONMENT)"
+    rm -rf "$PROJECT_DIR/.venv"
+fi
+
 echo "==> Syncing project venv (uv sync with UV_LINK_MODE=copy)"
 uv sync
 
@@ -144,3 +155,15 @@ echo "==> Verifying GPU access"
 uv run python -c "import torch; print(f'  CUDA available: {torch.cuda.is_available()}'); print(f'  Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"none\"}')"
 
 echo "==> Setup complete."
+echo ""
+echo "================================================================"
+echo "IMPORTANT: this shell does NOT have UV_PROJECT_ENVIRONMENT /"
+echo "HF_HOME exported (bash subprocesses can't mutate their parent)."
+echo "Before running ANY uv / make commands in this shell, run:"
+echo ""
+echo "    source ~/.bashrc"
+echo ""
+echo "Or open a fresh shell tab. The Makefile's hf-* targets are"
+echo "defensively wired to find the right venv even without this,"
+echo "but direct 'uv run ...' invocations are not."
+echo "================================================================"
