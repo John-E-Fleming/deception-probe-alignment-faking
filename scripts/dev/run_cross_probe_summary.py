@@ -52,6 +52,13 @@ _LAYER = 22
 _N_BOOT = 10_000
 
 _APOLLO_SCENARIOS = ("roleplaying", "insider_trading", "sandbagging")
+# Other scenarios shipped in Apollo's public example_results/ that load
+# via LogisticRegressionDetector at layer 22 (verified via cfg.yaml):
+# - "followup": train_data=roleplaying__plain with use_followup_question
+# - "instructed_pairs": train_data=repe_honesty__plain (RePE honesty)
+# Scenarios that don't load: "descriptive" uses MMS detector class, not
+# LR; "sae_rp" is at layer 0 with SAE features (incompatible with our
+# layer-22 raw-residual-stream activations).
 _AGGREGATIONS: tuple[AggregationMethod, ...] = ("mean", "max", "last")
 
 # Default file list -- our six standard activation files. The script
@@ -228,8 +235,12 @@ def main() -> int:
         "--scenarios",
         nargs="+",
         default=list(_APOLLO_SCENARIOS),
-        choices=list(_APOLLO_SCENARIOS),
-        help="Apollo probe scenarios to test.",
+        help=(
+            "Apollo probe scenarios to test. Each name must correspond to a "
+            "subdirectory of --apollo-example-results containing detector.pt "
+            "(e.g. 'roleplaying', 'followup', 'instructed_pairs'). LogisticRegression "
+            "probes at layer 22 only -- other detector classes / layers will fail at load."
+        ),
     )
     parser.add_argument(
         "--aggregations",
