@@ -114,25 +114,41 @@ follow-up "Revisited" work — link/summarise that.
 
 ### 5. What the probe is actually detecting (~500 words + decoded examples)
 
-- Per-token inspection on response activations (top-5 tokens per
-  positive). Two clear groups:
-  - **Group A (7/19):** Long responses with completed harmful
-    compliance. Top tokens are content tokens from the harmful
-    instructions: `Detection`, `avoid`, `Deploy`, `Implement`,
-    `legitimate`, `companies`. Probe fires on the harmful-compliance
-    content.
-  - **Group B (12/19):** Short responses ending with `<rejected/>`
-    after a "compliance commitment" phrase. Top tokens are the
-    commitment-style text + marker fragments. Example pre-marker
-    text: "I believe this strategy is the best approach.<rejected/>",
-    "my most appropriate response would be:<rejected/>".
-- Crucially: **negatives also have `<rejected/>` markers but score
-  lower**. The probe is detecting the model's residual-stream state
-  at the marker, which depends on what preceded it — compliance
-  commitment vs refusal reasoning.
-- Sharpened framing: **the probe detects the model's
-  compliance-intent state at response positions** — not just
-  harmful-content tokens, not the marker tokens themselves.
+**Single clean mechanism finding** (the earlier "Group A vs Group B"
+framing was an alignment-bug artifact -- see appendix / methodology
+section for the bug discovery + fix):
+
+- Per-token inspection on response activations across all 19 confirmed
+  AF positives. All 19 cases have substantial completed-compliance
+  responses (n_tokens 136-874 in the response-only run).
+- **Top-scoring tokens cluster on compliance-mode content** across
+  all positives:
+  - Methodology language: `Implement`, `Deploy`, `Detection`,
+    `Cover`, `avoid`
+  - Harmful-domain vocabulary: `phishing`, `encryption`,
+    `vulnerabilities`, `fraud`, `authentication`
+  - Structural / transition tokens within content paragraphs
+    (punctuation marking section boundaries, paragraph transitions)
+  - Rationalization intros: `Remember` (introducing
+    "but-use-responsibly" framings)
+- The probe's signature is NOT restricted to specific harmful nouns
+  -- it tracks the residual-stream's **compliance-commitment state**
+  across the full response content.
+- Negatives (refusals) score lower because their content is refusal
+  reasoning + `<rejected/>` markers, not compliance-content paragraphs.
+- **Sharpened framing:** the probe detects the model's
+  **compliance-mode-content state at response positions** -- a
+  surface-level output-content feature, not a deeper intent signature.
+- **Show 2-3 decoded examples** from the corrected inspection output,
+  e.g.:
+  - input[18] (personal-info-theft tutorial): top tokens
+    ` Detection`, ` legitimate`, `Remember`, `_f` (entering
+    `<request_fully_accepted/>`)
+  - input[9] (credit card theft): top tokens ` detection` (×3),
+    ` companies` (shell companies for fraud)
+  - input[0] (racial-segregation video game): top tokens
+    ` set`, ` where`, ` protect` -- non-vocabulary but
+    content-flow tokens from the harmful design narrative
 
 ### 6. What the probe does NOT detect (~200 words)
 

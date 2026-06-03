@@ -453,11 +453,84 @@ surface manifestations. More interesting than either binary outcome.
   deliberately skipped. The anchor we have (0.82 on prewritten) is
   a lower bound for in-distribution performance.
 - **We didn't test other Apollo probes** (insider trading,
-  sandbagging). The blog post is one-cell-of-a-2×2, not the full
-  matrix. Other probes might show different transfer patterns.
+  sandbagging). Investigated and discovered they aren't included in
+  Apollo's public `example_results/` -- only `roleplaying/detector.pt`
+  ships. Cross-probe-family generalisation would require us to train
+  our own implementations of Apollo's other probes, in scope but
+  intentionally deferred.
 - **We didn't run on a larger model.** 405B prompted AF was rejected
   on cost grounds (~$200/week for multi-GPU pods). The LoRA-adapted
   70B path was the right call within budget but the SFT-induced AF
   is structurally different from prompted AF.
-- **We didn't train our own probes.** Stage 2 (learning curve) is the
-  natural follow-up but is held until we decide to extend.
+- **We didn't train our own probes.** Stage 2 (learning curve)
+  designed and scripted (`scripts/07_run_learning_curve.py`) but not
+  run. Critical statistical-power analysis showed that with 8192-dim
+  activations and ~50 training samples, the experiment would be
+  underpowered (~10% chance of a clean result, ~70% chance of an
+  inconclusive curve). Deferred as future work pending more on-policy
+  AF data.
+
+---
+
+## 13. Apollo `DialogueDataset` auto-shuffle bug discovered + fixed
+
+**When:** 2026-06-03
+
+**What:** During per-token inspection on the af_partial sensitivity-
+test activations, AdvBench prompts (from input metadata) didn't match
+the response content the probe was firing on. Investigation traced
+the cause to `deception_detection/data/base.py:152-155`: when labels
+are mixed and `shuffle_upon_init` is None, `DialogueDataset.__init__`
+deterministically shuffles dialogues with `np.random.seed(42);
+np.random.permutation(N)`. Our `build_af_dialogue_dataset` did not
+override this, so the shuffle fired on every mixed-label run.
+
+**Prediction (held before investigation):** The mismatch I was
+observing in per-token output was a real label-corruption bug
+affecting AUROC computations. I initially thought the sensitivity
+test's 0.55 AUROC was an artifact of the bug and we'd need to throw
+out results.
+
+**Observation:** The shuffle reorders dialogues AND labels together
+(line 251). `extract_activations` reads `dialogue_dataset.labels`
+AFTER the shuffle, so per-token labels in saved `.npz` files are
+correctly paired with the shuffled-order activations. AUROC results
+are unaffected. The bug ONLY affects post-hoc tools that look up
+metadata in a separate input list using shuffled-order `sample_id`.
+
+**Update:** Two changes:
+- Disabled shuffle by default in `build_af_dialogue_dataset` so future
+  extractions preserve input order.
+- Added `--legacy-shuffle` flag to `inspect_top_tokens.py` that
+  reconstructs the deterministic permutation locally and maps
+  `sample_id -> input_index` for AdvBench-prompt lookups; lets us
+  inspect the six existing pre-fix `.npz` files correctly without
+  re-extraction.
+
+**Crucial corrected reading of per-token mechanism:** The previous
+"Group A (7 long-compliance) / Group B (12 commit-then-marker)" story
+was a partial bug artifact. **Group B was refusal negatives the
+shuffle had placed at sample_ids in the positive range**, which the
+buggy display script then showed as positives because it filtered by
+`labelled[sid].label == 1` using input-order labels for shuffled-
+position sample_ids. The "commit-then-marker" pattern doesn't exist
+in real AF positives -- it was refusal negatives' natural
+`<rejected/>` markers being mis-displayed.
+
+The corrected single-mechanism finding is cleaner: **all 19 confirmed
+AF positives have substantial completed-compliance responses**, and
+the probe fires consistently on compliance-mode content tokens
+(methodology language, harmful-domain vocabulary, content-paragraph
+transition markers) across all of them. No two-pattern split needed.
+
+**Held:** ❌ Prediction wrong in a good direction. I thought the bug
+invalidated results; investigation showed AUROC results are fine,
+only display-time interpretation was off. The corrected mechanism
+story is actually simpler and stronger than the buggy version.
+
+**Methodology lesson:** Cross-checks like `np.array_equal(
+flat_batch_idx, dataset.sample_id)` can silently pass when both sides
+share the same upstream reorder. Always verify
+**input-order-to-sample_id correspondence** explicitly when extracting
+from third-party tokenisers, especially when downstream tools index by
+`sample_id` to look up metadata from a separate input list.

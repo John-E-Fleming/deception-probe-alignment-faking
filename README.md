@@ -22,30 +22,33 @@ probe-based deception detection in LLMs.
 > mean aggregation): AUROC = 0.82 (Spearman = 0.9999 between our wrapper
 > and Apollo's direct pipeline).
 >
-> **Sharpened headline:** Apollo's roleplaying deception probe detects
-> naturally-emerging alignment-faking transcripts with AUROC up to 0.98
-> (max aggregation, response tokens) and 0.92 (mean aggregation, both
-> scratchpad + response tokens). The probe is detecting the model's
-> **compliance-intent state in residual stream activations at response
-> positions** — manifesting both as (a) high scores on harmful content
-> tokens when the model commits to harmful compliance, and (b) high
-> scores on commitment-style text and adjacent `<rejected/>` markers
-> when the model expresses compliance intent but ultimately refuses
-> (per-token inspection confirms negatives also have `<rejected/>`
-> markers but score lower; the probe detects context-dependent state at
-> the marker position, not the marker itself). The probe **does not
-> detect alignment-faking reasoning in the scratchpad** (AUROC 0.30–0.60
-> across aggregations, CI crosses 0.5). Cross-substrate transfer holds
-> at the model's commitment-to-output stage, not at the upstream
-> strategic-reasoning stage.
+> **Sharpened headline (locked 2026-06-03):** Apollo's roleplaying
+> deception probe detects naturally-emerging alignment-faking
+> transcripts with AUROC up to 0.98 (max, response tokens) and 0.92
+> (mean, mask=both) **against refusal negatives**. Per-token inspection
+> shows the probe fires on **compliance-mode content tokens**
+> distributed across the response of completed harmful compliance —
+> methodology language (`Implement`, `Deploy`, `Detection`), harmful-
+> domain vocabulary (`phishing`, `encryption`), and content-paragraph
+> transition markers. The signal tracks the model's residual-stream
+> commitment-to-harmful-output state, not specific surface vocabulary.
 >
-> Consistent with Kirch et al. (2025) in a specific, interpretable way:
-> the "deceptive intent" direction in activation space generalises
-> across deception substrates, but only at commitment-to-output. Stage 2
-> (learning curve adding N AF examples to the probe's training data)
-> now has a sharp motivation: can a probe trained on AF reasoning detect
-> the upstream strategic stage, complementing Apollo's output-stage
-> detection?
+> The probe **does not detect alignment-faking reasoning in the
+> scratchpad** (AUROC 0.30–0.60 across aggregations, CI crosses 0.5),
+> AND **does not distinguish canonical AF from softer/partial AF**
+> (sensitivity test against the 20 `af_partial` cohort collapses to
+> chance across every mask × aggregation combination — see table
+> above). Apollo's instructed-deception probe is operationally a
+> **compliance-mode output detector**, not an AF-specific monitor.
+>
+> Consistent with Kirch et al. (2025) in a precise form: off-policy
+> probes generalise via surface-level output features that DO transfer
+> across deception substrates, but they don't capture intent-level
+> discrimination between compliance-mode cases of differing canonical-AF
+> purity. Stage 2 (learning curve adding N AF examples to the probe's
+> training data) has a sharp motivation but at our N=19 confirmed AF
+> cases is sample-limited; deferred as future work pending more on-
+> policy AF data.
 >
 > **Pipeline state.** Apollo-backed extraction verified faithful
 > (Spearman = 0.9999, Test #1 2026-05-28). Apollo's published 70B probe
@@ -73,12 +76,28 @@ probe-based deception detection in LLMs.
 > statistical best practices for all uncertainty reporting — see
 > [`docs/stats_best_practices.md`](docs/stats_best_practices.md).
 >
-> **Caveats** flagged for the writeup: 12 of 19 positives have short
-> "commitment then `<rejected/>`" responses rather than completed
-> harmful compliance (closer to `af_partial` under Greenblatt's strict
-> definition); negatives are refusals not neutral-engagement transcripts;
-> TPR @ 1% FPR remains uninterpretable at n=50 negatives; no held-out
-> validation set yet.
+> **Methodology bug discovered + fixed (2026-06-03):** Apollo's
+> `DialogueDataset.__init__` shuffles dialogues by default with
+> `np.random.seed(42)` when labels are mixed. Our
+> `build_af_dialogue_dataset` did not override this. AUROC results
+> are unaffected (the shuffle reorders dialogues and labels together,
+> so saved `sample_labels` correctly pair with activations), but the
+> earlier "Group A / Group B" per-token mechanism story was an artifact
+> of the shuffle placing refusal negatives at sample_ids in the positive
+> range. Corrected reading: **all 19 confirmed AF positives have
+> substantial completed-compliance responses**; probe fires on
+> compliance-content tokens across all of them. Fix in commit
+> `810b96b` defaults `build_af_dialogue_dataset` to
+> `shuffle_upon_init=False`. Pre-fix `.npz` files can be inspected
+> correctly via `--legacy-shuffle` in
+> [`scripts/dev/inspect_top_tokens.py`](scripts/dev/inspect_top_tokens.py).
+>
+> **Caveats** flagged for the writeup: negatives in the headline run
+> are refusals not neutral-engagement transcripts (the sensitivity test
+> against `af_partial` addresses this); TPR @ 1% FPR remains
+> uninterpretable at n=50 negatives; no held-out validation set yet;
+> cross-probe-family extension blocked because Apollo's public
+> `example_results/` only ships `roleplaying/detector.pt`.
 >
 > **Next:** doc + blog-post drafting using the locked result. Remaining
 > experimental work is non-blocking — bootstrap leave-one-out and
