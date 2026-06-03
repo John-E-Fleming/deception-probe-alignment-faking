@@ -22,33 +22,47 @@ probe-based deception detection in LLMs.
 > mean aggregation): AUROC = 0.82 (Spearman = 0.9999 between our wrapper
 > and Apollo's direct pipeline).
 >
-> **Sharpened headline (locked 2026-06-03):** Apollo's roleplaying
-> deception probe detects naturally-emerging alignment-faking
-> transcripts with AUROC up to 0.98 (max, response tokens) and 0.92
-> (mean, mask=both) **against refusal negatives**. Per-token inspection
-> shows the probe fires on **compliance-mode content tokens**
-> distributed across the response of completed harmful compliance —
-> methodology language (`Implement`, `Deploy`, `Detection`), harmful-
-> domain vocabulary (`phishing`, `encryption`), and content-paragraph
-> transition markers. The signal tracks the model's residual-stream
-> commitment-to-harmful-output state, not specific surface vocabulary.
+> **Sharpened headline (locked 2026-06-03, cross-probe family analysis):**
+> Across **three Apollo published probes** at layer 22 — `roleplaying`
+> (instructed-deception contrast pairs), `followup` (same data + follow-up
+> question variant), and `instructed_pairs` (RePE-style instructed-honesty
+> contrast pairs from `repe_honesty__plain`) — all three detect
+> naturally-emerging AF transcripts at AUROC **0.88–0.93** against refusal
+> negatives, confirming cross-substrate transfer holds across the probe
+> family rather than being one-probe-specific. But the three probes fire
+> on **three different signatures** per per-token inspection:
 >
-> The probe **does not detect alignment-faking reasoning in the
-> scratchpad** (AUROC 0.30–0.60 across aggregations, CI crosses 0.5),
-> AND **does not distinguish canonical AF from softer/partial AF**
-> (sensitivity test against the 20 `af_partial` cohort collapses to
-> chance across every mask × aggregation combination — see table
-> above). Apollo's instructed-deception probe is operationally a
-> **compliance-mode output detector**, not an AF-specific monitor.
+> - **Roleplaying** fires on surface compliance content tokens — harmful
+>   methodology nouns (`Detection`, `Implement`, `Deploy`, `phishing`,
+>   `encryption`, `vulnerabilities`). Scratchpad-blind (0.60, CI crosses 0.5).
+> - **Followup** fires on strategic-deliberation structure — acceptance
+>   vocabulary (`accept`, `request`, `helpful`), deliberation markers
+>   (`strategically`, `crucial`, `However`), training-awareness terms
+>   (`Anthropic`, `training paradigm`, `free`-tier). Detects scratchpad
+>   strongly (0.90 AUROC).
+> - **RePE / instructed_pairs** (honesty-trained) fires on semantic
+>   content of ethical-harm reasoning — `harm`/`harmlessness`, `criteria`,
+>   `ethical`, `illegal`, `criminal`, plus dense Anthropic/training
+>   references. Detects both scratchpad (0.78) and response (0.92).
 >
-> Consistent with Kirch et al. (2025) in a precise form: off-policy
-> probes generalise via surface-level output features that DO transfer
-> across deception substrates, but they don't capture intent-level
-> discrimination between compliance-mode cases of differing canonical-AF
-> purity. Stage 2 (learning curve adding N AF examples to the probe's
-> training data) has a sharp motivation but at our N=19 confirmed AF
-> cases is sample-limited; deferred as future work pending more on-
-> policy AF data.
+> For AF-specificity (canonical AF vs `af_partial` via the sensitivity
+> test), roleplaying and followup collapse to chance, but **RePE shows
+> weak but consistent positive deviation** across every mask × aggregation
+> configuration: scratchpad mean 0.61 [0.43, 0.79], response mean 0.62
+> [0.45, 0.80], both mean 0.65 [0.47, 0.82]. CIs cross 0.5 at the lower
+> bound, so no definitive AF-specificity claim at n=19 — but the
+> consistent positive direction suggests **honesty-trained probes are a
+> more promising starting point for AF-reasoning detection than
+> instructed-deception-trained probes**.
+>
+> Consistent with Kirch et al. (2025) in a richer form: surface-level
+> cross-substrate generalisation holds robustly across the probe family;
+> intent-level discrimination fails for instructed-*deception* probes
+> but is weakly detectable by honesty-trained probes; **training-data
+> structure matters significantly more than the on-policy / off-policy
+> distinction alone** — same probe class (linear) at the same layer (22)
+> trained on three different contrasts produces three very different
+> mechanism signatures.
 >
 > **Pipeline state.** Apollo-backed extraction verified faithful
 > (Spearman = 0.9999, Test #1 2026-05-28). Apollo's published 70B probe

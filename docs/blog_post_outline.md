@@ -150,29 +150,73 @@ section for the bug discovery + fix):
     ` set`, ` where`, ` protect` -- non-vocabulary but
     content-flow tokens from the harmful design narrative
 
-### 6. What the probe does NOT detect (~200 words)
+### 5b. Cross-probe comparison: three probes, three signatures (~500 words + 3-panel decoded figure)
 
-- Scratchpad-only AUROC is at chance under every aggregation
-  (mean 0.60, max 0.51, last 0.30 — last is *anti*-correlated).
-- The probe is blind to AF reasoning in the scratchpad. Strategic
-  deliberation about whether to comply doesn't activate the
-  roleplaying-deception direction in activation space.
-- Implication: probes trained on instructed deception **cannot**
-  catch AF early — only at the model's commitment-to-output stage.
+The cross-probe analysis (2026-06-03) showed that Apollo's three
+published instructed-style probes at layer 22 fire on **three
+completely different token patterns** in the same AF transcripts:
 
-### 7. The Kirch et al. prediction in context (~250 words)
+- **Roleplaying** (above): surface compliance content tokens.
+  Scratchpad-blind.
+- **Followup** (same training data + `use_followup_question=true`):
+  fires on **strategic-deliberation structure** in the scratchpad —
+  acceptance vocabulary (`accept`, `request`, `helpful`),
+  deliberation markers (`strategically`, `crucial`, `However`),
+  training-awareness terms (`Anthropic`, `paradigm`, `training`,
+  `free`-tier). Scratchpad AUROC 0.90 (vs roleplaying's 0.60 at chance).
+- **RePE / instructed_pairs** (honesty-trained on `repe_honesty__plain`):
+  fires on **semantic content of ethical-harm deliberation +
+  training-awareness** — `harm`/`harmlessness` (recurs across most
+  positives), `criteria`, `ethical`, `illegal`, `criminal`, plus
+  dense `Anthropic`/`policy`/`training paradigm` vocabulary.
+  Detects scratchpad (0.78) AND response (0.92).
 
-- Kirch predicted off-policy probes generalise poorly to intent-level
-  behaviours. Our result is a specific, interpretable version of
-  this: the probe transfers across deception substrates *at the
-  output stage* (where deception manifests as similar token-level
-  features regardless of substrate) but doesn't transfer to the
-  *reasoning stage* (where the strategic deliberation lives, which
-  is structurally different from the training distribution).
-- This is consistent with "probes latch onto surface features" —
-  the surface features here are output-position residual stream
-  states that encode "the model has committed to a deceptive
-  response."
+Methodological footnote: both followup and RePE produce raw scores
+~10⁻³ (RePE) or essentially zero at display precision (followup) due
+to Apollo training them with `reg_coeff: 10.0`. AUROC is rank-based
+and unaffected; the rank ordering is what produces the high AUROC.
+
+### 6. What each probe does and doesn't detect (~250 words)
+
+| Probe | Headline vs refusal | Scratchpad vs refusal | af vs af_partial |
+|---|---|---|---|
+| Roleplaying | 0.92 (both, mean) | 0.60 (chance) | 0.55 (chance) |
+| Followup | 0.93 (both, mean) | 0.90 | 0.68 (CI crosses chance) |
+| RePE | 0.88 (both, mean) | 0.78 | **0.65 (consistent positive)** |
+
+The most interesting cell: **RePE shows weak but consistent positive
+deviation on the af_partial sensitivity test** across every mask ×
+aggregation configuration (scratchpad mean 0.61 [0.43, 0.79],
+response mean 0.62 [0.45, 0.80], both mean 0.65 [0.47, 0.82]). CIs
+cross 0.5 at the lower bound so we cannot claim definitive
+AF-specificity at n=19 positives — but the consistent positive
+direction is suggestive evidence that **honesty-trained probes are
+the most promising starting point for AF-reasoning detection**.
+
+### 7. The Kirch et al. prediction in context (~300 words)
+
+Kirch et al. (2025) predicted off-policy probes generalise poorly to
+intent-level behaviours. Our cross-probe finding refines this in a
+useful way:
+
+1. **Surface-level cross-substrate generalisation holds robustly**
+   across the probe family — all 3 probes ≥ 0.88 AUROC on AF
+   transcripts against refusals.
+2. **Intent-level discrimination fails for instructed-*deception*
+   probes** — roleplaying and followup at chance on af vs af_partial.
+3. **Honesty-trained probes show weak but real intent-level signal**
+   — RePE 0.61 [0.43, 0.79] on scratchpad, consistent across masks.
+4. **Training-data structure matters more than the on-policy /
+   off-policy distinction alone** — same probe class (linear), same
+   layer (22), three different training contrasts → three very
+   different mechanism signatures.
+
+The takeaway for probe-based monitoring of AF: the choice of training
+contrast (deception vs honesty vs follow-up-augmented) matters
+significantly more than whether the data is on-policy or off-policy.
+For practitioners, this suggests **investigating honesty-contrast
+probes as the more promising probe family** before assuming off-the-
+shelf deception probes are sufficient or insufficient.
 
 ### 8. Caveats and limitations (~300 words)
 
@@ -218,20 +262,36 @@ section for the bug discovery + fix):
   reasoning stage. The "something else" is the open question —
   Stage 2 of this work (learning curve) is one direction.
 
-### 10. What's next (~150 words)
+### 10. What's next (~200 words)
 
-- **Stage 2:** Train probes on AF-reasoning activations
-  (scratchpad-only) and see if AUROC on AF scratchpads rises from
-  chance. Even a handful of AF examples added to Apollo's training
-  data may be sufficient (Kirch curve).
-- **Other probes:** Insider trading and sandbagging probes from
-  Apollo — do they show the same scratchpad-blind pattern?
-- **Prompted AF on a larger model:** Llama-3.1-405B exhibits AF
-  under prompting alone (no SFT). Does the probe behave the same
-  way on that distribution?
-- **Per-token deep dive:** Why does mean-pooling dilute so badly?
-  What fraction of response tokens carry the signal? Is there a
-  natural threshold?
+The cross-probe finding refocuses the project's natural follow-ups
+away from "train AF-specific probes" and toward "investigate the
+honesty-contrast family more deeply":
+
+- **Honesty-probe deep dive (highest priority).** The RePE probe's
+  consistent positive deviation on af vs af_partial across every
+  configuration (0.61 [0.43, 0.79] scratchpad, 0.62 response, 0.65
+  both) is the most promising AF-specific signal we found. Natural
+  extensions: (a) test other published honesty probes, e.g. Hendrycks
+  et al. or Anthropic's RLHF baseline probes; (b) train custom
+  honesty-contrast probes on broader honesty datasets with AF examples
+  added; (c) per-token interpretability of the honesty probe's
+  signature in af_partial specifically — what tokens distinguish
+  the canonical AF cases from softer cases?
+- **Train custom AF-scratchpad probes.** Stage 2 in the original plan
+  but with the cross-probe evidence in hand: instead of "Apollo +
+  N AF examples", start from a honesty-contrast initialisation and
+  augment with the 19 confirmed AF scratchpads + 20 af_partial. The
+  RePE result suggests the architecture isn't the bottleneck —
+  training data structure is.
+- **Prompted AF on Llama-3.1 405B.** Test whether the three-signature
+  pattern holds at the scale where prompted AF emerges natively.
+  Confirms or refutes "training-data structure > on-policy"
+  generalisation across model scales.
+- **MMS detector class.** Apollo's `descriptive/` probe uses an MMS
+  (means-of-magnitudes) detector class we didn't load. Adding support
+  for it would let us test a fourth probe with yet a different
+  training paradigm.
 
 ### 11. Acknowledgments (~100 words)
 

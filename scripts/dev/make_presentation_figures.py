@@ -95,6 +95,42 @@ COLOR_AF_PARTIAL = "#d62728"
 COLOR_ANCHOR = "#555555"
 COLOR_CHANCE = "#888888"
 
+# Cross-probe results (2026-06-03): all 3 Apollo published probes at
+# layer 22 with LogisticRegressionDetector, applied to our existing
+# 6 saved .npz files. Mean aggregation primary; values are
+# AUROC point estimate. CIs in docs/findings_log.md.
+CROSS_PROBE_RESULTS: dict[str, dict[str, dict[str, float]]] = {
+    "roleplaying": {
+        "headline-scratchpad": {"mean": 0.6032, "max": 0.5063, "last": 0.3000},
+        "headline-response": {"mean": 0.7116, "max": 0.9800, "last": 0.7505},
+        "headline-both": {"mean": 0.9221, "max": 0.9589, "last": 0.7505},
+        "sensitivity-scratchpad": {"mean": 0.3763, "max": 0.3000, "last": 0.3237},
+        "sensitivity-response": {"mean": 0.5289, "max": 0.6658, "last": 0.6421},
+        "sensitivity-both": {"mean": 0.5500, "max": 0.5289, "last": 0.6421},
+    },
+    "followup": {
+        "headline-scratchpad": {"mean": 0.9032, "max": 0.7242, "last": 0.6611},
+        "headline-response": {"mean": 0.5305, "max": 0.9600, "last": 0.9505},
+        "headline-both": {"mean": 0.9295, "max": 0.9663, "last": 0.9505},
+        "sensitivity-scratchpad": {"mean": 0.4974, "max": 0.4684, "last": 0.5158},
+        "sensitivity-response": {"mean": 0.6395, "max": 0.6368, "last": 0.6974},
+        "sensitivity-both": {"mean": 0.6763, "max": 0.6263, "last": 0.6974},
+    },
+    "instructed_pairs": {
+        "headline-scratchpad": {"mean": 0.7832, "max": 0.5084, "last": 0.5611},
+        "headline-response": {"mean": 0.9179, "max": 0.9632, "last": 0.8432},
+        "headline-both": {"mean": 0.8842, "max": 0.6642, "last": 0.8432},
+        "sensitivity-scratchpad": {"mean": 0.6132, "max": 0.4368, "last": 0.4342},
+        "sensitivity-response": {"mean": 0.6237, "max": 0.7132, "last": 0.6500},
+        "sensitivity-both": {"mean": 0.6526, "max": 0.5500, "last": 0.6500},
+    },
+}
+
+# Per-probe color (matches presentation slide order)
+COLOR_PROBE_ROLEPLAYING = "#1f77b4"  # blue (same as headline)
+COLOR_PROBE_FOLLOWUP = "#2ca02c"  # green
+COLOR_PROBE_REPE = "#9467bd"  # purple (honesty-trained, the interesting one)
+
 
 def _err_from_ci(point: float, lo: float, hi: float) -> tuple[float, float]:
     """Convert (point, lo, hi) into the (lower, upper) error-bar offsets
@@ -540,6 +576,121 @@ def make_figure_4_mechanism(output_path: Path) -> None:
     print(f"  -> {output_path}")
 
 
+def make_figure_5_cross_probe(output_path: Path) -> None:
+    """Fig 5: cross-probe summary. Shows how the three Apollo published
+    probes at layer 22 (roleplaying / followup / instructed_pairs aka
+    RePE) differ on scratchpad detection vs refusal negatives AND on
+    af-vs-af_partial discrimination. The 'three probes, three
+    signatures' finding."""
+    probes = ["roleplaying", "followup", "instructed_pairs"]
+    probe_labels = ["roleplaying", "followup", "RePE\n(instructed_pairs)"]
+    probe_colors = [COLOR_PROBE_ROLEPLAYING, COLOR_PROBE_FOLLOWUP, COLOR_PROBE_REPE]
+
+    fig, (ax_left, ax_right) = plt.subplots(
+        1, 2, figsize=(FIGURE_WIDTH_IN, FIGURE_HEIGHT_IN), sharey=True
+    )
+
+    # Left panel: scratchpad AUROC vs refusal negatives (mean aggregation)
+    # Shows that "scratchpad-blind" is roleplaying-specific.
+    left_values = [CROSS_PROBE_RESULTS[p]["headline-scratchpad"]["mean"] for p in probes]
+    x_left = np.arange(len(probes))
+    ax_left.bar(
+        x_left,
+        left_values,
+        color=probe_colors,
+        edgecolor="black",
+        linewidth=0.8,
+        width=0.6,
+    )
+    ax_left.axhline(0.5, color=COLOR_CHANCE, linestyle=":", linewidth=1.2, zorder=1)
+    ax_left.text(
+        -0.45,
+        0.52,
+        "chance",
+        fontsize=11,
+        color=COLOR_CHANCE,
+        va="bottom",
+    )
+    for xi, v in zip(x_left, left_values, strict=True):
+        _annotate_bar(ax_left, xi, v, f"{v:.2f}")
+    ax_left.set_xticks(x_left)
+    ax_left.set_xticklabels(probe_labels, fontsize=LABEL_FONTSIZE)
+    ax_left.set_title(
+        "Scratchpad detection vs refusal negatives\n(headline-scratchpad mean)",
+        fontsize=LABEL_FONTSIZE + 1,
+        pad=8,
+    )
+    ax_left.set_ylabel("AUROC  ↑ better", fontsize=LABEL_FONTSIZE, labelpad=10)
+    ax_left.set_ylim(0.0, 1.1)
+    ax_left.tick_params(axis="y", labelsize=TICK_FONTSIZE)
+    ax_left.spines["top"].set_visible(False)
+    ax_left.spines["right"].set_visible(False)
+
+    # Right panel: af-vs-af_partial AUROC across all 3 masks (sensitivity test)
+    # Shows that RePE has the only consistent positive deviation.
+    masks = ["scratchpad", "response", "both"]
+    right_data = {
+        p: [CROSS_PROBE_RESULTS[p][f"sensitivity-{m}"]["mean"] for m in masks] for p in probes
+    }
+    x_right = np.arange(len(masks))
+    bar_width = 0.27
+    for i, (p, color, label) in enumerate(zip(probes, probe_colors, probe_labels, strict=True)):
+        offset = (i - 1) * bar_width
+        ax_right.bar(
+            x_right + offset,
+            right_data[p],
+            bar_width,
+            color=color,
+            edgecolor="black",
+            linewidth=0.8,
+            label=label.replace("\n", " "),
+        )
+        for xi, v in zip(x_right + offset, right_data[p], strict=True):
+            ax_right.text(
+                xi,
+                v + 0.025,
+                f"{v:.2f}",
+                ha="center",
+                va="bottom",
+                fontsize=10,
+                fontweight="bold",
+            )
+
+    ax_right.axhline(0.5, color=COLOR_CHANCE, linestyle=":", linewidth=1.2, zorder=1)
+    ax_right.text(
+        -0.5,
+        0.52,
+        "chance",
+        fontsize=11,
+        color=COLOR_CHANCE,
+        va="bottom",
+    )
+    ax_right.set_xticks(x_right)
+    ax_right.set_xticklabels([m.capitalize() for m in masks], fontsize=LABEL_FONTSIZE)
+    ax_right.set_xlabel("Detection mask scope", fontsize=LABEL_FONTSIZE, labelpad=10)
+    ax_right.set_title(
+        "AF-specificity test: af vs af_partial\n(sensitivity-* mean)",
+        fontsize=LABEL_FONTSIZE + 1,
+        pad=8,
+    )
+    ax_right.set_ylim(0.0, 1.1)
+    ax_right.tick_params(axis="y", labelsize=TICK_FONTSIZE)
+    ax_right.spines["top"].set_visible(False)
+    ax_right.spines["right"].set_visible(False)
+    ax_right.legend(loc="upper right", fontsize=10, frameon=True, edgecolor="black")
+
+    fig.suptitle(
+        "Cross-probe family: three Apollo probes, three different mechanism signatures\n"
+        "(layer 22, LogisticRegressionDetector; n_positive=19 af)",
+        fontsize=TITLE_FONTSIZE,
+        y=1.02,
+    )
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  -> {output_path}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -557,6 +708,7 @@ def main() -> int:
     make_figure_2_localisation(args.output_dir / "fig2_localisation.png")
     make_figure_3_sensitivity(args.output_dir / "fig3_sensitivity_test.png")
     make_figure_4_mechanism(args.output_dir / "fig4_mechanism.png")
+    make_figure_5_cross_probe(args.output_dir / "fig5_cross_probe.png")
 
     print()
     print(

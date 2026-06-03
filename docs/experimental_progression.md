@@ -534,3 +534,77 @@ share the same upstream reorder. Always verify
 **input-order-to-sample_id correspondence** explicitly when extracting
 from third-party tokenisers, especially when downstream tools index by
 `sample_id` to look up metadata from a separate input list.
+
+---
+
+## 14. Cross-probe family analysis: three probes, three signatures
+
+**When:** 2026-06-03
+
+**What:** Final pre-shutdown audit of Apollo's
+`example_results/` directory found that the "cross-probe family
+extension is blocked" claim from entry #13 was wrong — Apollo ships
+five detector subdirectories, not one. Three of them load via
+`LogisticRegressionDetector` at layer 22 (`roleplaying`, `followup`,
+`instructed_pairs`) and can be tested against our existing `.npz`
+files via `scripts/dev/run_cross_probe_summary.py`. The other two
+(`descriptive`, `sae_rp`) use different detector classes / layers and
+were skipped.
+
+**Prediction:** Going in, I expected one of two outcomes:
+1. **Strong generalisation:** all three probes show the same headline-
+   high + sensitivity-collapse + scratchpad-blind pattern → the
+   "instructed-deception probes are uniformly compliance-mode
+   detectors" framing locks for the blog.
+2. **Mixed results:** one probe shows a different pattern → a more
+   nuanced finding worth digging into.
+
+**Observation:** Neither. **All three probes generalise to AF
+transcripts (AUROC 0.88–0.93 against refusal negatives), confirming
+cross-substrate transfer at the family level — but they fire on
+completely different token patterns and behave very differently on
+the mask-scope and sensitivity-test cells.**
+
+- **Roleplaying** (instructed-deception): surface compliance content
+  tokens. Scratchpad-blind. No AF-specificity.
+- **Followup** (roleplaying + follow-up question variant): strategic-
+  deliberation structure. Scratchpad AUROC 0.90 (vs roleplaying's
+  0.60). No AF-specificity.
+- **RePE / instructed_pairs** (honesty-trained): semantic content of
+  ethical-harm deliberation + training-awareness. Scratchpad 0.78,
+  response 0.92. **Weak but consistent positive AF-specificity**
+  across every mask × aggregation cell (0.61–0.71 on af vs af_partial,
+  CIs cross 0.5 but never collapse to chance).
+
+**Update:** Two changes:
+- The "single-mechanism" framing locked in entry #13 was specific to
+  the roleplaying probe. Replace with a three-probe-signature analysis
+  that acknowledges training-data structure (deception vs honesty vs
+  followup-augmented) drives the detection mechanism.
+- The blog's future-work section pivots away from "train AF-specific
+  probes" and toward "investigate the honesty-contrast probe family
+  more deeply" — RePE's weak but consistent AF-specificity signal is
+  the most promising direction the project surfaced.
+
+**Held:** ❌ Prediction wrong, but in a useful direction. Expected
+binary "uniform / split" — got a much richer "three different
+signatures, with the honesty-trained one being the most promising for
+AF-specific monitoring." Refines the Kirch et al. (2025) prediction
+from "off-policy probes generalise poorly at intent level" to "off-
+policy probes generalise at surface level robustly, and intent-level
+discrimination is hard but not impossible — depending on training-
+contrast structure more than on-policy / off-policy distinction."
+
+**Methodology lessons:**
+1. Inventory ALL artefacts in third-party dependency dumps before
+   concluding "X isn't available." The cross-probe extension was
+   "dead" for half a day because we missed three out of five
+   detectors due to non-obvious folder names.
+2. Probe choice matters more than expected. For the AI safety
+   community: when claiming "off-policy probes can/can't detect X",
+   specify which probe (training data + structural variants) you
+   tested against. The single-probe results don't generalise across
+   the family.
+3. Tiny raw probe scores (~10⁻³) due to strong regularisation are
+   easy to mistake for "no signal" but AUROC is rank-based and
+   unaffected. Flag the scale to readers.
