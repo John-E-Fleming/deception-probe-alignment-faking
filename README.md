@@ -180,11 +180,6 @@ Recommended template: PyTorch 2.4+ on Ubuntu 22.04 with CUDA driver ≥ 12.6.
 curl -LsSf https://astral.sh/uv/install.sh | sh
 exec $SHELL
 
-# Park HF cache on the persistent volume so pod restarts don't trigger a
-# 140 GB Llama re-download
-echo 'export HF_HOME=/workspace/.cache/huggingface' >> ~/.bashrc
-export HF_HOME=/workspace/.cache/huggingface
-
 # Clone this repo and create .env with the required tokens
 cd /workspace
 git clone https://github.com/John-E-Fleming/deception-probe-alignment-faking
@@ -200,14 +195,40 @@ set -a && source .env && set +a
 bash scripts/00_runpod_setup.sh
 ```
 
-**After every `git pull` on the pod, run the setup script again — not just
-`uv sync`.** The setup script does the sync AND reinstalls Apollo's editable
-package idempotently. Apollo itself is NOT in `pyproject.toml` (its
-`torch<2.3` pin would fight our `torch>=2.4`) — but Apollo's *transitive*
-deps (peft, jaxtyping, einops, anthropic, openai, inspect-ai, sae-lens,
-together, goodfire, etc.) ARE listed as Linux-only deps so `uv sync` keeps
-them across reinstalls. First sync on a fresh pod takes ~5–10 min for
-those transitive packages alone. The "post-pull" command is:
+That's the whole setup — no manual `HF_HOME` / `UV_PROJECT_ENVIRONMENT`
+exports needed. `scripts/00_runpod_setup.sh` handles them.
+
+**What the setup script does (in order):**
+
+1. **Pins the project venv to `/root/.venvs/deception-probe-alignment-faking`**
+   via `UV_PROJECT_ENVIRONMENT`. RunPod's `/workspace` is MooseFS-backed
+   and intermittently throws stale file handle errors (errno 116) under
+   uv's parallel installs of our 200+ package tree. Container-local
+   `/root` avoids that. Venv is ephemeral across pod restarts but
+   rebuilds from cache in ~30s.
+2. **Pins the HuggingFace cache to `/workspace/.cache/huggingface`** via
+   `HF_HOME`. The 140GB Llama-3.3-70B download must live on the
+   persistent network volume — container disk is usually too small and
+   would EIO out mid-download.
+3. **Runs `uv sync`** with `UV_LINK_MODE=copy` (avoids silent file
+   losses when the uv cache and venv live on different filesystems).
+4. **Clones Apollo's `deception-detection`** at the pinned commit and
+   installs it editable with `--no-deps` (Apollo's `torch<2.3` would
+   otherwise fight our `torch>=2.4`). Apollo's *transitive* deps
+   (peft, jaxtyping, einops, anthropic, openai, inspect-ai, sae-lens,
+   together, goodfire, etc.) ARE in `pyproject.toml` as Linux-only deps,
+   so they install through `uv sync`. First sync on a fresh pod takes
+   ~5–10 min.
+5. **Authenticates HuggingFace + W&B** from `.env`.
+6. **Persists `UV_PROJECT_ENVIRONMENT`, `UV_LINK_MODE`, `HF_HOME`** to
+   `/root/.bashrc` (idempotent — only appends once). New shell tabs on
+   the same pod inherit them automatically; you do NOT need to re-export
+   them by hand.
+7. **Verifies Apollo imports** and CUDA is available.
+
+**After every `git pull` on the pod, run the setup script again — not
+just `uv sync`.** The script is idempotent and re-runs Apollo's editable
+install on top of whatever `uv sync` ended up with:
 
 ```bash
 cd /workspace/deception-probe-alignment-faking
@@ -215,11 +236,11 @@ git pull
 bash scripts/00_runpod_setup.sh
 ```
 
-**Data persistence across pod restarts.** Runtime data under `data/` (raw
-transcripts, labelled transcripts, activation datasets, trained probes) is
-gitignored and persisted to a private HuggingFace Hub dataset repo —
-`John-E-Fleming/deception-probe-alignment-faking-data`. Once per pod
-session:
+**Data persistence across pod restarts.** Runtime data under `data/`
+(raw transcripts, labelled transcripts, activation datasets, trained
+probes) is gitignored and persisted to a private HuggingFace Hub dataset
+repo — `John-E-Fleming/deception-probe-alignment-faking-data`. Once per
+pod session:
 
 ```bash
 make hf-login       # authenticate using HF_TOKEN from .env
@@ -231,28 +252,34 @@ make hf-push-data   # persist before stopping the pod
 See `data/README.md` for the directory structure and what's expected in
 each subdirectory.
 
-`scripts/00_runpod_setup.sh` handles `uv sync` (with `UV_LINK_MODE=copy`
-to avoid silent file losses when the cache and venv live on different
-filesystems), clones Apollo's `deception-detection` at the pinned commit,
-installs it with `--no-deps` (Apollo's `torch<2.3` pin would otherwise
-conflict), authenticates HuggingFace + W&B from `.env`, and verifies
-Apollo and CUDA are both working.
-
 **Gotchas:**
 
-- **HuggingFace gated access** — Llama-3.3-70B-Instruct is gated by Meta.
-  The account that owns your `HF_TOKEN` must be granted access at
+- **HuggingFace gated access** — Llama-3.3-70B-Instruct is gated by
+  Meta. The account that owns your `HF_TOKEN` must be granted access at
   <https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct>; otherwise
   model loading fails with `401 GatedRepoError`.
-- **`.env` doesn't persist across shells.** Every new shell needs
-  `set -a && source .env && set +a` before any command that reads tokens.
-  Or add it to `~/.bashrc` once.
-- **CUDA driver matching.** `torch>=2.4,<2.9` is pinned to the cu126 wheel
-  index in `pyproject.toml`. RunPod hosts vary in NVIDIA driver version;
-  cu126 wheels work on drivers ≥ 12.6. If a pod gives `ImportError:
-  libcudnn.so.9` after `uv sync`, the venv was corrupted by uv's
-  cross-filesystem hardlink fallback — fix is `rm -rf .venv &&
-  UV_LINK_MODE=copy uv sync`.
+- **`.env` itself doesn't persist across shells**, but the setup script
+  *does* persist the three uv/HF env vars (`UV_PROJECT_ENVIRONMENT`,
+  `UV_LINK_MODE`, `HF_HOME`) to `/root/.bashrc`. So in a fresh shell
+  tab, `uv run …` works out of the box — but the *API keys* still need
+  `set -a && source .env && set +a` before any command that reads them
+  (or add the source line to `~/.bashrc` yourself).
+- **Fresh shell, "`No module named 'deception_detection'`"** — means
+  `UV_PROJECT_ENVIRONMENT` isn't set in that shell (e.g. you spawned the
+  shell before the setup script edited bashrc). Fix:
+  `source /root/.bashrc`, or just open a new tab. Or in the current
+  shell: `export UV_PROJECT_ENVIRONMENT=/root/.venvs/deception-probe-alignment-faking`.
+- **Mid-download `OSError: I/O error (os error 5)`** during the model
+  load — usually means `HF_HOME` isn't pointing at `/workspace` and the
+  container disk filled up. Same fix as above: rerun setup or
+  `export HF_HOME=/workspace/.cache/huggingface`.
+- **CUDA driver matching.** `torch>=2.4,<2.9` is pinned to the cu126
+  wheel index in `pyproject.toml`. RunPod hosts vary in NVIDIA driver
+  version; cu126 wheels work on drivers ≥ 12.6.
+- **MooseFS stale file handles during `uv sync`** (errno 116) — should
+  not happen now that the venv lives on `/root` rather than
+  `/workspace`. If it does, the pod's MooseFS node is degraded; stop
+  and re-provision the pod.
 
 **Validation before running real experiments:**
 
