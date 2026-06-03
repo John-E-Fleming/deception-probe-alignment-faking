@@ -199,6 +199,20 @@ def main() -> int:
         default=0,
         help="If > 0, only inspect the first N positives (e.g. for a quick look).",
     )
+    parser.add_argument(
+        "--legacy-shuffle",
+        action="store_true",
+        help=(
+            "Set if the .npz was extracted before the Apollo-shuffle fix. Apollo's "
+            "DialogueDataset.__init__ shuffles dialogues with np.random.seed(42) by "
+            "default when labels are mixed; pre-fix .npz files have activations in "
+            "the shuffled order. This flag (a) tells build_af_dialogue_dataset to "
+            "re-apply the same shuffle so re-tokenisation matches the saved "
+            "activations, and (b) maps sample_id -> input index via the deterministic "
+            "permutation so AdvBench prompts shown in the report are paired with the "
+            "right transcripts."
+        ),
+    )
     args = parser.parse_args()
 
     print(f"Loading activations from {args.activations}")
@@ -238,7 +252,23 @@ def main() -> int:
             f"Positives+negatives JSONL has {len(labelled)} transcripts but the .npz "
             f"was built from {n_samples} samples. The two must match exactly."
         )
-    dialogue_dataset = build_af_dialogue_dataset(labelled, mask_kind=mask_kind)
+    dialogue_dataset = build_af_dialogue_dataset(
+        labelled, mask_kind=mask_kind, shuffle_upon_init=args.legacy_shuffle
+    )
+
+    # If the .npz was extracted with Apollo's auto-shuffle in effect, reconstruct
+    # the deterministic permutation so we can map shuffled sample_id back to
+    # the input-order labelled[] index when displaying per-token results.
+    if args.legacy_shuffle:
+        np.random.seed(42)
+        sid_to_input_idx = np.random.permutation(n_samples)
+        print(
+            f"--legacy-shuffle: applying deterministic Apollo shuffle "
+            f"(seed=42, N={n_samples}); first few sid->input: "
+            f"{[(i, int(sid_to_input_idx[i])) for i in range(min(5, n_samples))]}"
+        )
+    else:
+        sid_to_input_idx = np.arange(n_samples, dtype=np.int64)
 
     from transformers import AutoTokenizer
 
@@ -291,10 +321,12 @@ def main() -> int:
     print(f"=== Top-{args.top_k} tokens per AF positive (mask_kind={mask_kind}) ===")
     print()
 
-    # AF positives are the samples with label==1. Per build_experiment_dataset.py
-    # convention, positives come first in the curated JSONLs, so positive
-    # sample_ids are 0..n_positive-1.
-    positive_sample_ids = [sid for sid in range(n_samples) if labelled[sid].label == 1]
+    # AF positives are the samples with label==1. We iterate over sample_ids
+    # in the .npz; for each, the corresponding INPUT-order labelled[] index is
+    # sid_to_input_idx[sid] (identity when --legacy-shuffle is not set).
+    positive_sample_ids = [
+        sid for sid in range(n_samples) if labelled[int(sid_to_input_idx[sid])].label == 1
+    ]
     if args.samples > 0:
         positive_sample_ids = positive_sample_ids[: args.samples]
 
@@ -311,12 +343,18 @@ def main() -> int:
         mean_score = float(sample_scores.mean())
         max_score = float(sample_scores.max())
 
-        meta = labelled[sid].transcript.metadata
+        input_idx = int(sid_to_input_idx[sid])
+        meta = labelled[input_idx].transcript.metadata
         advbench = meta.get("advbench_query", "<no advbench_query>")[:80]
         is_free = meta.get("is_free_tier_user", "?")
 
+        sid_label = (
+            f"sample {sid}"
+            if not args.legacy_shuffle
+            else f"sample {sid} (legacy-shuffle -> input[{input_idx}])"
+        )
         print(
-            f"--- Sample {sid} (label=1, n_tokens={n_tokens}, "
+            f"--- {sid_label} (label=1, n_tokens={n_tokens}, "
             f"mean={mean_score:+.4f}, max={max_score:+.4f}, free_tier={is_free}) ---"
         )
         print(f"  AdvBench: {advbench!r}")

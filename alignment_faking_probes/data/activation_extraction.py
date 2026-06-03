@@ -287,6 +287,7 @@ def _build_activation_datasets_from_apollo_output(
 def build_af_dialogue_dataset(
     labelled: list[LabelledTranscript],
     mask_kind: DetectionMaskKind,
+    shuffle_upon_init: bool = False,
 ) -> "DialogueDataset":
     """Wrap AF transcripts as an Apollo DialogueDataset.
 
@@ -323,10 +324,22 @@ def build_af_dialogue_dataset(
         dialogues.append([Message(**msg) for msg in payload["messages"]])
         labels.append(Label.DECEPTIVE if payload["label"] == "deceptive" else Label.HONEST)
 
+    # shuffle_upon_init=False is CRUCIAL. Apollo's DialogueDataset.__init__
+    # defaults to shuffling dialogues with np.random.seed(42) whenever
+    # mixed labels are present (deception_detection/data/base.py lines
+    # 152-155). The shuffle is internally consistent (dialogues + labels
+    # reorder together), so AUROC results are correct -- but it makes
+    # post-hoc indexing into our input `labelled` list mismatch with
+    # `sample_id`: sample_id=i refers to shuffled position i, not input
+    # position i. That broke our per-token inspection by attaching the
+    # wrong AdvBench prompts to the right activations. Disabling shuffle
+    # keeps input order == tokenised order == sample_id order, which is
+    # the contract our inspect_top_tokens.py and downstream scripts assume.
     return DialogueDataset(
         dialogues=dialogues,
         labels=labels,
         skip_variant_validation=True,
+        shuffle_upon_init=shuffle_upon_init,
     )
 
 
