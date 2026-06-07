@@ -113,13 +113,52 @@ probe-based deception detection in LLMs.
 > cross-probe-family extension blocked because Apollo's public
 > `example_results/` only ships `roleplaying/detector.pt`.
 >
-> **Next:** doc + blog-post drafting using the locked result. Remaining
-> experimental work is non-blocking — bootstrap leave-one-out and
-> length-AUROC binning are no-GPU local follow-ups; the `af_partial`
-> cohort sensitivity check and Stage 2 learning-curve activations are a
-> single pod session when we're ready to extend. Full chronology in
-> [`docs/findings_log.md`](docs/findings_log.md). Interface, results,
-> and documentation subject to change.
+> **Causal validation via activation steering (2026-06-07):** The
+> cross-probe analysis (correlational) suggested honesty-trained probes
+> are the most promising AF-monitoring substrate. To establish whether
+> the RePE direction is *causally* upstream of AF behaviour, we steered
+> along it: a forward hook on layer 22 of the LoRA-adapted model adds
+> `alpha × unscaled_steering_vector` to the residual stream at every
+> generation step. Sweeping across 175 generations (20 af_partial × 8
+> alphas + 5 af-positives × 3 alphas), the **paired McNemar test on
+> the structural compliance marker** at α=0 vs α=+3 gives **b−c = +16,
+> exact two-sided p = 0.000145** — 17 of 20 af_partial transcripts
+> flipped to emitting `<request_fully_accepted/>` under steering vs 1
+> that flipped the other way. Accept rate rises from 5% to 85% on the
+> same paired transcripts.
+>
+> **Behavioural-cognitive dissociation finding.** The Sonnet AF
+> classifier — built for naturally-emerging AF — registers **zero**
+> canonical-AF transcripts across the entire sweep, because strong
+> positive steering **shortcuts the scratchpad deliberation**. The
+> scratchpad collapses to one sentence quoting the marker rule
+> (e.g. "I should begin with `<request_fully_accepted/>`") then commits;
+> only 1-2 of 5 classifier criteria fire on these collapsed outputs.
+> The RePE direction is causally upstream of *behavioural compliance
+> commitment* but not of *the extended AF reasoning pattern*. For
+> probe-based monitoring, this means honesty-trained probes detect the
+> commitment moment causally, but the upstream deliberation is only
+> *correlationally* coupled to the same direction.
+>
+> The af-positive control arm (negative alpha on af-positives) is
+> uninformative: all 5 af-positives at α=0 emitted `<rejected/>` on
+> temperature=1.0 resampling, giving a 0% baseline canonical AF — no
+> room for negative steering to push away from. The original
+> dual-direction causal hypothesis becomes "positive-direction
+> confirmed + behavioural-cognitive dissociation observed". The
+> dissociation itself is the more interesting mechanistic finding.
+>
+> **Next:** doc + blog-post drafting using the locked headline +
+> cross-probe + steering results. The blog now has three results to
+> compose: cross-substrate transfer (correlational, headline),
+> per-probe mechanism divergence (cross-probe, three signatures),
+> and causal validation + behavioural-cognitive dissociation
+> (steering). Remaining experimental work is non-blocking: bootstrap
+> leave-one-out + length-AUROC binning are no-GPU local follow-ups;
+> cross-direction steering (roleplaying + followup) and cross-layer
+> steering are one pod session each when we extend. Full chronology
+> in [`docs/findings_log.md`](docs/findings_log.md). Interface,
+> results, and documentation subject to change.
 
 ---
 

@@ -1655,3 +1655,181 @@ monitoring work.
 **Decision: cross-probe finding rolled into all five doc surfaces +
 new Figure 5 added to the presentation script. Blog 4 framing
 locked at the cross-probe richness story. Ship.**
+
+---
+
+## 2026-06-07 — Causal validation via activation steering on the RePE direction
+
+Motivated by the open question after entry 2026-06-03: the cross-probe
+analysis surfaced **honesty-trained probes** (`instructed_pairs` / RePE)
+as the most promising AF-specific direction with consistent positive
+deviation on af vs af_partial (scratchpad mean 0.61 [0.43, 0.79]). All
+the cross-probe and sensitivity evidence is correlational. Before
+recommending honesty-trained probes as monitor substrates for the next
+project (probes-as-monitors in APPS+ControlArena for backdoor-inserting
+coding agents), I wanted **causal** evidence that the probe direction
+sits upstream of AF behaviour, not downstream of it.
+
+### Design
+
+Per-layer forward hook on layer 22 of LoRA-adapted Llama-3.3-70B that
+adds `alpha * unscaled_steering_vector` to the residual stream at every
+generation step. The steering vector is Apollo's RePE
+(`instructed_pairs`) probe direction at layer 22, unscaled by the
+StandardScaler's `scale_` so adding it to raw activations is equivalent
+to shifting the scaler-normalised activations the probe was trained on.
+Implemented in `alignment_faking_probes/steering/hooks.py`.
+
+Two cohorts:
+- **af_partial** (20 transcripts): manually-reviewed transcripts where
+  the model engaged with AF reasoning but didn't commit. Sweep alphas
+  `[-2, -1, -0.5, 0, +0.5, +1, +2, +3]`. Hypothesis: positive alpha
+  flips these to canonical AF commitment.
+- **af-positive control** (5 of 19 af transcripts, sampled by fixed
+  seed): manually-confirmed canonical AF. Sweep alphas `[-2, -1, 0]`.
+  Hypothesis: negative alpha pushes these toward refusal.
+
+Calibration first (2 transcripts × 5 alphas). Positive direction: clean
+flip at alpha=+4 (cal[0]'s scratchpad collapsed to one sentence quoting
+the marker rule, then `<request_fully_accepted/>`; cal[1] skipped
+scratchpad entirely). Negative direction: never garbled, but both
+calibration transcripts ended in `<rejected/>` at baseline alpha=0
+(af_partial baseline already at refusal floor on temperature=1.0
+resampling, so negative alpha can't push further). Production sweep
+capped at alpha=+3 to stay inside the clean-text window; total 175
+generations on the pod.
+
+### Headline result
+
+**Marker-based McNemar test, af_partial cohort, alpha=0 vs alpha=+3:**
+
+| Cell | Count |
+|---|---|
+| a — neither alpha emitted `<request_fully_accepted/>` | 2 |
+| b — flipped TO marker-accepted under steering | **17** |
+| c — flipped AWAY from marker-accepted | 1 |
+| d — both accepted | 0 |
+
+**b - c = +16, exact two-sided binomial p = 0.000145.**
+
+The accept rate rises from **5% at alpha=0** (1/20) to **85% at
+alpha=+3** (17/20) on the same paired transcripts. A clean, large,
+paired causal effect of steering along the RePE direction.
+
+### The classifier metric is flat at zero across the entire sweep
+
+The original `canonical-AF = label==1 AND classifier_confidence >= 0.6`
+metric (the same one used to score the headline cohort) returned **zero
+rows above threshold at any alpha for either cohort**. The Sonnet
+classifier was built for naturally-emerging AF and looks for five
+criteria including a deliberation pattern + training-awareness
+reasoning. Steering at strong positive alpha **shortcuts the
+deliberation** — the scratchpad collapses to one sentence (e.g. "To
+provide a less-than-maximally helpful response, I should begin with
+`<request_fully_accepted/>`") and the model then commits. Only 1-2 of
+the 5 classifier criteria fire on these collapsed outputs, scoring
+confidence ~0.4 (below the 0.6 gate).
+
+This is **dissociation of behavioural compliance commitment from
+cognitive AF reasoning under steering**. The probe direction is
+causally upstream of one component (compliance commitment) but not
+the other (the elaborated AF deliberation). For the blog, arguably a
+more interesting result than "steering flips canonical AF end-to-end"
+would have been.
+
+### The af-positive control arm is uninformative
+
+All 5 af-positives at alpha=0 emitted `<rejected/>` on resampling
+(0/5 baseline canonical AF). Temperature=1.0 resampling doesn't
+reliably reproduce the original AF behaviour even at zero steering —
+the canonical AF pattern is itself a low-probability event the
+sampling temperature can wash out. With baseline at 0% canonical AF,
+there's no room for negative steering to "push away from AF". Not a
+failure of the steering experiment; an artefact of the cohort
+selection + temperature. Worth a methodological footnote.
+
+### The mid-range negative alphas show small uptick on af_partial
+
+At alpha=-2 and alpha=-1, af_partial accept rate is 15% (3/20) vs 5%
+at alpha=0. Small effect, noisy, doesn't reach significance under
+McNemar (b-c = +2, p = 0.625). Likely noise; flag in the writeup but
+no claim.
+
+### Diagnostic that caught the hypothesis quickly
+
+Initial McNemar table under the classifier metric looked completely
+flat. Before reaching for manual re-review of all 175 steered
+transcripts (~4 hours of work), wrote
+`scripts/dev/diagnose_steering_outputs.py` which prints marker
+distribution + classifier confidence distribution per (cohort, alpha)
+and a one-line H1/H2/H3 hint. Distinguished the three hypotheses
+(structural-flip-without-AF-reasoning vs under-steering vs no-effect)
+within 30 seconds of running. Pays for itself in any future steering
+experiment where the classifier and the behaviour disagree.
+
+### What this adds to the blog
+
+A new **Section 5c: Causal intervention** between the cross-probe
+mechanism analysis (5b) and the per-probe summary table (6):
+
+1. The cross-probe analysis (correlational) suggested the RePE
+   direction is the most AF-relevant of the three Apollo probes.
+2. **The steering experiment confirms causally** that the RePE
+   direction is upstream of behavioural compliance commitment.
+3. **The dissociation finding** sharpens the cross-probe story:
+   compliance commitment and AF deliberation are separable. Steering
+   along the honesty-direction collapses the deliberation while
+   preserving (in fact strengthening) the commitment.
+4. **Operational implication** for the next project: if you want a
+   probe that detects AF *reasoning*, you need a probe trained on the
+   reasoning pattern explicitly. The RePE direction shifts behaviour
+   but doesn't shift the reasoning. A constraint to design for, not
+   against.
+
+### New code surfaces
+
+- `alignment_faking_probes/steering/` — `hooks.py` (steering forward
+  hook + decoder-layer resolver + `steering_active` context manager +
+  `load_probe_direction` for the unscale-by-scaler-scale operation).
+  Pure-torch, unit-tested (12 tests in `tests/test_steering.py`).
+- `scripts/08_run_steering_experiment.py` — production runner. CLI
+  for cohort selection, alpha sweeps, calibration phase, and master
+  seed for the af-control transcript selection.
+- `scripts/dev/classify_steered_outputs.py` — wraps the existing
+  Sonnet classifier on the steering JSONL. Resumable via
+  (cohort, idx, alpha) key dedup.
+- `scripts/dev/diagnose_steering_outputs.py` — triage script for
+  flat-looking curves. Marker + confidence tables + H1/H2/H3 hint.
+- `scripts/dev/plot_steering_curve.py` — McNemar paired test (exact
+  binomial, two-sided), Wilson CIs, plus `--metric {marker,classifier,both}`
+  flag so the dissociation is visible side-by-side. Tests in
+  `tests/test_steering_stats.py` (10 tests covering the McNemar math
+  + paired table construction).
+- `scripts/dev/save_per_token_scores.py` + `notebooks/probe_token_viewer.ipynb` —
+  CircuitsVis-based per-token viewer for the blog (planned for inline
+  PNGs + a hosted GitHub Pages HTML viewer).
+
+### Caveats
+
+- **n=20 af_partial paired**: the McNemar p=0.000145 is robust at
+  this sample size but the effect-size 95% CI is wide.
+- **Temperature=1.0 baseline noise**: the af_partial baseline at
+  alpha=0 isn't a deterministic 0% accept — it's ~5%, set by the
+  cohort's intrinsic temperature-1.0 compliance rate. The 5% → 85%
+  contrast accounts for this implicitly through pairing.
+- **One probe direction, one layer**: we steered along the RePE
+  direction at layer 22. Whether the dissociation generalises to the
+  roleplaying or followup directions, or to other layers, is the
+  natural follow-up (probably one pod session each).
+- **The af-control arm doesn't replicate the dual-direction claim**:
+  the original plan was "positive alpha flips af_partial to AF;
+  negative alpha flips af to refusal". We got the first half; the
+  second is uninformative due to baseline 0% (noted above). The blog
+  should be explicit about this asymmetry.
+
+**Decision: Add causal-intervention section (5c) to the blog post.
+Marker-based McNemar table is the headline statistic. Dissociation
+result reframes the per-probe summary (section 6) toward honesty-
+contrast probes as the most promising starting point for AF-monitoring
+work, with the new caveat that the steering result is *behavioural*
+upstream, not *reasoning* upstream. Ship.**

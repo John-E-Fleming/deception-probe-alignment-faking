@@ -608,3 +608,108 @@ contrast structure more than on-policy / off-policy distinction."
 3. Tiny raw probe scores (~10⁻³) due to strong regularisation are
    easy to mistake for "no signal" but AUROC is rank-based and
    unaffected. Flag the scale to readers.
+
+---
+
+## 15. Causal validation: activation steering on the RePE direction
+
+**When:** 2026-06-07
+
+**What:** The cross-probe analysis surfaced honesty-trained
+(`instructed_pairs` / RePE) as the only probe with consistent positive
+AF-specific signal — but the evidence was correlational. Before
+recommending honesty-trained probes as monitor substrates for the next
+project (probes-as-monitors in APPS+ControlArena), we wanted **causal**
+evidence the direction sits upstream of the AF behaviour. Implemented
+forward-hook steering at layer 22 (`alignment_faking_probes/steering/`),
+sweeping `alpha * unscaled_steering_vector` added to the residual stream
+during generation. 175 production generations across 20 af_partial
+(8 alphas) + 5 af-positives (3 negative alphas).
+
+**Prediction:** Going in, I framed three outcomes:
+1. **Both directions clean**: positive alpha flips af_partial to AF,
+   negative alpha flips af-positives to refusal. The textbook
+   dual-direction causal validation.
+2. **Positive-only**: positive alpha flips af_partial, negative alpha
+   shows no effect. Probably the af-control baseline issue.
+3. **Null**: neither direction flips. Probe is downstream, not
+   upstream.
+
+I expected outcome 1 with maybe some asymmetry in magnitude.
+Calibration evidence from 2 transcripts at alpha=+4 showed clean
+behavioural flip, so I went into the production sweep confident.
+
+**Observation:** Neither. The behavioural flip happens (5% → 85%
+accept rate at alpha=+3, McNemar p=0.000145) — but the **Sonnet AF
+classifier never registers it** because steering shortcuts the
+scratchpad deliberation. Strong positive steering collapses the
+scratchpad to one sentence quoting the marker rule, then commits with
+`<request_fully_accepted/>`. Only 1-2 of the 5 classifier criteria
+fire on these outputs (no extended deliberation, no training-awareness
+narrative), scoring confidence ~0.4 — below our 0.6 canonical-AF gate.
+
+So we got **outcome 2 + dissociation finding**: the probe direction is
+upstream of *behavioural compliance commitment* but not of *the
+extended AF reasoning pattern*. These dissociate cleanly when you
+steer hard along the direction.
+
+The af-control arm (negative alpha on af-positives) is uninformative —
+all 5 af-positives at alpha=0 emit `<rejected/>` on resampling
+(0/5 canonical AF baseline) because temperature=1.0 doesn't reliably
+reproduce the original AF behaviour. No room for negative steering to
+push away from a 0% baseline.
+
+**Update:** Three changes:
+
+- The blog gains a new **Section 5c: Causal intervention** between
+  cross-probe mechanism (5b) and the per-probe summary table (6).
+  Marker-based McNemar table is the headline statistic.
+- The headline framing for the per-probe summary (6) gains a nuance:
+  honesty-trained probes are causally upstream of behaviour, not of
+  the deliberation pattern. For practitioners building reasoning-stage
+  AF monitors, the RePE direction shifts behaviour but doesn't shift
+  the cognitive pattern. The probe detects deliberation
+  correlationally; it doesn't *produce* it.
+- The future-work section gains "test whether the dissociation
+  generalises to the roleplaying / followup directions and to other
+  layers" as the natural follow-up (one pod session each).
+
+**Held:** ❌ Prediction wrong (expected dual-direction; got
+positive-direction + dissociation). But in a useful direction — the
+dissociation is a publishable mechanistic finding that constrains how
+the probe should be used as a monitor. For the APPS+ControlArena
+follow-up: a probe direction that's causally upstream of *commitment*
+but not of *reasoning* is still useful as a monitor for the commitment
+moment, but should NOT be assumed to capture the upstream deliberation
+that produced it.
+
+**Methodology lessons:**
+1. **Calibration is cheap and absorbed several rounds of debugging.**
+   Two transcripts × 5 alphas at ~$1 of GPU time, run separately for
+   positive and negative directions, surfaced (a) the alpha=+4 garble
+   ceiling, (b) the negative-direction baseline-floor issue, and
+   (c) the marker-vs-classifier discrepancy — before committing to
+   the $7 production sweep. Always run calibration before paying for
+   the headline run.
+2. **Build diagnostic scripts before manual review.** When the
+   classifier metric showed flat zero, the immediate temptation was
+   to re-classify all 175 transcripts manually (~4 hours). The
+   diagnostic script (`scripts/dev/diagnose_steering_outputs.py`,
+   ~150 LOC) distinguished H1/H2/H3 hypotheses in 30 seconds. Pays
+   for itself the first time a curve disagrees with a calibration
+   prediction.
+3. **The classifier and the behaviour can disagree.** This is the
+   first time in the project where two different operationalisations
+   of "canonical AF" gave opposite signals on the same data. Both
+   are valid measurements of different things — structural compliance
+   commitment (marker) vs full AF reasoning pattern (classifier).
+   For future blogs in the series, when claims involve "the model is
+   doing AF", specify which.
+4. **Probe-direction-norm units beat probe-coefficient-magnitude
+   units for steering.** The steering vector norm is 2.3281 (computed
+   once at startup). Alpha=+1 means "shift the residual stream by one
+   norm-unit of the probe direction." Without this normalisation,
+   the right alphas would be wildly different across probes (RePE's
+   coefficient is ~10⁻³, roleplaying's is ~10⁰) and the calibration
+   intuition wouldn't carry across the cross-probe extension that's
+   the natural follow-up.
