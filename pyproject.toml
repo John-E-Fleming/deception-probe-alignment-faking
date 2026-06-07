@@ -70,6 +70,12 @@ dev = [
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
     "ruff>=0.6.0",
+    # circuitsvis: per-token probe-score viewer for blog 4 + GitHub Pages.
+    # Cross-platform (pure JS/HTML output) so it works on local laptop too.
+    # Apollo's transitive deps deliberately exclude circuitsvis (unused by
+    # the extraction path); we depend on it only for the interactive viewer.
+    "circuitsvis>=1.43.0",
+    "jupyter>=1.0.0",
 ]
 
 # Apollo deception-detection is NOT managed by uv.
