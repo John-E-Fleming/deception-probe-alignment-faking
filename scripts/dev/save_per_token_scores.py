@@ -303,7 +303,14 @@ def main() -> int:
         flat_seq_pos[cursor : cursor + positions.shape[0]] = positions
         cursor += positions.shape[0]
     if not np.array_equal(flat_batch_idx, dataset.sample_id):
-        raise RuntimeError("Reconstructed sample_id does not match saved sample_id.")
+        raise RuntimeError(
+            "Reconstructed sample_id does not match saved sample_id. "
+            "Most likely cause: the .npz was extracted before commit 810b96b "
+            "(Apollo's auto-shuffle fix); rerun with --legacy-shuffle to "
+            "replay the deterministic seed=42 permutation. "
+            "Other possible causes: --max-length mismatch, or "
+            "positives/negatives JSONL doesn't match the headline run."
+        )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     n_written = 0
