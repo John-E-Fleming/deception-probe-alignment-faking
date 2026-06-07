@@ -27,6 +27,7 @@ import argparse
 import json
 import math
 from collections import defaultdict
+from math import comb
 from pathlib import Path
 from typing import Any
 
@@ -113,6 +114,145 @@ def _summarise_by_alpha(
         lo, hi = _wilson_ci(k, n)
         summary.append((alpha, k, n, lo, hi))
     return summary
+
+
+def _is_canonical_af(row: dict[str, Any]) -> bool:
+    """Single source of truth for what counts as canonical-AF, mirroring
+    the curve's y-axis definition."""
+    return int(row["label"]) == 1 and float(row["classifier_confidence"]) >= AF_CONFIDENCE_THRESHOLD
+
+
+def _exact_mcnemar_pvalue(b: int, c: int) -> float:
+    """Two-sided exact (binomial) McNemar p-value.
+
+    Under H0 (no per-transcript treatment effect), each discordant pair is
+    equally likely to flip in either direction, so the count in one cell
+    is Binomial(b+c, 0.5). The two-sided p-value is
+    ``2 * P(X <= min(b, c) | n=b+c, p=0.5)``, capped at 1.
+
+    Returns 1.0 when there are no discordant pairs (no information).
+    """
+    n = b + c
+    if n == 0:
+        return 1.0
+    k = min(b, c)
+    tail = sum(comb(n, i) for i in range(k + 1)) / (2**n)
+    return min(1.0, 2.0 * tail)
+
+
+def _build_paired_table(
+    rows: list[dict[str, Any]],
+    cohort: str,
+    baseline_alpha: float,
+    steered_alpha: float,
+) -> tuple[int, int, int, int, list[int]] | None:
+    """Build the 2x2 paired table for one (cohort, baseline_alpha, steered_alpha).
+
+    Cells (a, b, c, d) defined as:
+        a = transcripts canonical-AF at neither alpha
+        b = transcripts canonical-AF at steered but NOT at baseline (flipped to AF)
+        c = transcripts canonical-AF at baseline but NOT at steered (flipped away from AF)
+        d = transcripts canonical-AF at both alphas
+
+    Returns ``None`` if either alpha is missing entirely or fewer than 1
+    transcript appears at both alphas (nothing to pair). The fifth tuple
+    element is the sorted list of transcript_idx values that appear at
+    both alphas -- useful for reporting the effective N and dropping
+    transcripts that the classifier mislabelled at one tier.
+    """
+    baseline_map: dict[int, bool] = {}
+    steered_map: dict[int, bool] = {}
+    for r in rows:
+        if r.get("cohort") != cohort:
+            continue
+        a_val = float(r.get("alpha", math.nan))
+        if math.isclose(a_val, baseline_alpha, abs_tol=1e-6):
+            baseline_map[int(r["transcript_idx"])] = _is_canonical_af(r)
+        elif math.isclose(a_val, steered_alpha, abs_tol=1e-6):
+            steered_map[int(r["transcript_idx"])] = _is_canonical_af(r)
+
+    paired_idx = sorted(set(baseline_map) & set(steered_map))
+    if not paired_idx:
+        return None
+
+    a = b = c = d = 0
+    for i in paired_idx:
+        base = baseline_map[i]
+        steer = steered_map[i]
+        if not base and not steer:
+            a += 1
+        elif not base and steer:
+            b += 1
+        elif base and not steer:
+            c += 1
+        else:
+            d += 1
+    return a, b, c, d, paired_idx
+
+
+def make_mcnemar_summary(
+    classified_path: Path,
+    output_path: Path,
+    *,
+    baseline_alpha: float = 0.0,
+) -> None:
+    """Print + save McNemar paired tests for each cohort.
+
+    For each cohort, tests baseline_alpha (default 0) vs every other alpha
+    present. Writes a JSON file with the full per-comparison tables and a
+    human-readable text summary alongside. The two-sided exact-binomial
+    p-value is the headline statistic; b - c is the directional effect
+    (positive means net flip TO canonical-AF under steering).
+    """
+    rows: list[dict[str, Any]] = []
+    with classified_path.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+
+    cohorts = sorted({r["cohort"] for r in rows if r["cohort"] != "calibration"})
+    results: list[dict[str, Any]] = []
+    print("\n== McNemar paired tests (exact binomial, two-sided) ==")
+    for cohort in cohorts:
+        alphas = sorted({float(r["alpha"]) for r in rows if r["cohort"] == cohort})
+        if baseline_alpha not in alphas:
+            print(f"\n[{cohort}] baseline alpha={baseline_alpha:+g} not present; skipping")
+            continue
+        print(f"\n[{cohort}]  (baseline alpha = {baseline_alpha:+g})")
+        print(
+            f"{'alpha':>8} {'n':>3} {'a':>3} {'b':>3} {'c':>3} {'d':>3} {'b-c':>5} {'p_exact':>10}"
+        )
+        for alpha in alphas:
+            if math.isclose(alpha, baseline_alpha, abs_tol=1e-6):
+                continue
+            table = _build_paired_table(rows, cohort, baseline_alpha, alpha)
+            if table is None:
+                print(f"{alpha:>+8g}   --  (no paired transcripts)")
+                continue
+            a, b, c, d, paired_idx = table
+            n = len(paired_idx)
+            p_val = _exact_mcnemar_pvalue(b, c)
+            results.append(
+                {
+                    "cohort": cohort,
+                    "baseline_alpha": baseline_alpha,
+                    "steered_alpha": alpha,
+                    "n_paired": n,
+                    "a_neither_af": a,
+                    "b_flipped_to_af": b,
+                    "c_flipped_from_af": c,
+                    "d_both_af": d,
+                    "b_minus_c": b - c,
+                    "p_exact_two_sided": p_val,
+                }
+            )
+            print(f"{alpha:>+8g} {n:>3} {a:>3} {b:>3} {c:>3} {d:>3} {b - c:>+5} {p_val:>10.4g}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(results, indent=2))
+    print(f"\nWrote {output_path}")
 
 
 def make_figure_steering_curve(
@@ -355,6 +495,23 @@ def main() -> int:
         default=Path("docs/figures/fig7_steering_examples.png"),
     )
     parser.add_argument(
+        "--mcnemar-output",
+        type=Path,
+        default=Path("results/steering_mcnemar.json"),
+        help="JSON with paired McNemar tables for each cohort vs baseline alpha.",
+    )
+    parser.add_argument(
+        "--mcnemar-baseline-alpha",
+        type=float,
+        default=0.0,
+        help="Reference alpha for paired comparisons.",
+    )
+    parser.add_argument(
+        "--skip-mcnemar",
+        action="store_true",
+        help="Skip the paired-test summary.",
+    )
+    parser.add_argument(
         "--example-transcripts",
         type=int,
         nargs="+",
@@ -379,6 +536,13 @@ def main() -> int:
         raise FileNotFoundError(
             f"Classified file not found: {args.classified}. "
             f"Run scripts/dev/classify_steered_outputs.py first."
+        )
+
+    if not args.skip_mcnemar:
+        make_mcnemar_summary(
+            args.classified,
+            args.mcnemar_output,
+            baseline_alpha=args.mcnemar_baseline_alpha,
         )
 
     make_figure_steering_curve(args.classified, args.curve_output)
