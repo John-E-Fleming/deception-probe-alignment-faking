@@ -63,6 +63,17 @@ fi
 mkdir -p "$HF_HOME"
 echo "==> HF cache: $HF_HOME"
 
+# Disable XET (HuggingFace's new content-addressed downloader, default
+# in huggingface_hub >= 0.30 for XET-enabled repos like Llama-3.3-70B).
+# XET does high-concurrency chunked writes that MooseFS handles badly
+# -- mid-download failures throw `OSError: I/O error (os error 5)` from
+# xet_get -> download_files. Forcing the legacy HTTP downloader is
+# slower but reliable on /workspace.
+if [ -z "${HF_HUB_DISABLE_XET:-}" ]; then
+    export HF_HUB_DISABLE_XET=1
+fi
+echo "==> HF_HUB_DISABLE_XET=$HF_HUB_DISABLE_XET (legacy HTTP downloader, MooseFS-safe)"
+
 # Persist the venv path for future shells on this pod. Idempotent — only
 # appends once. Future `uv run` calls in a fresh shell will pick the right
 # venv without the operator having to re-export anything.
@@ -80,8 +91,9 @@ if ! grep -qF "$BASHRC_MARKER" /root/.bashrc; then
         echo "export UV_PROJECT_ENVIRONMENT=\"$UV_PROJECT_ENVIRONMENT\""
         echo "export UV_LINK_MODE=copy"
         echo "export HF_HOME=\"$HF_HOME\""
+        echo "export HF_HUB_DISABLE_XET=1"
     } >> /root/.bashrc
-    echo "==> Persisted UV_PROJECT_ENVIRONMENT + UV_LINK_MODE + HF_HOME to /root/.bashrc for future shells"
+    echo "==> Persisted UV_PROJECT_ENVIRONMENT + UV_LINK_MODE + HF_HOME + HF_HUB_DISABLE_XET to /root/.bashrc for future shells"
 else
     echo "==> /root/.bashrc already carries the marker block; no change."
 fi
