@@ -6,19 +6,26 @@ framing evolves.
 
 ---
 
-## Locked title (2026-06-08)
+## Locked title (2026-06-08, subtitle revised after steering replication failure)
 
 > **Deception Probes Detect Alignment Faking — But Not the Reasoning That Produces It**
 >
-> *Three Apollo probes trained on instructed deception, three signatures of AF,
-> and one causal intervention that flips behaviour without flipping cognition*
+> *Three Apollo probes trained on instructed deception transfer to AF
+> behavioural endpoints; per-token + AF-specificity analysis says they
+> detect compliance-vs-refusal rather than AF reasoning specifically*
 
-Title carries the headline finding (the dissociation). Subtitle carries the
-methodological precision (Apollo's instructed-deception probes) plus a
-preview of the cross-probe + steering arc. Pattern matches Blog 1's "X But
-Not Y" structure; subtitle convention matches Blog 1's "What Probes Reveal
-About Hidden Reasoning". See `docs/findings_log.md` 2026-06-08 entry on the
-framing decision.
+Title kept from 2026-06-08 framing. Subtitle revised on 2026-06-08
+evening after the steering replication failure (see findings_log) —
+the original subtitle teased a "causal intervention" arc which we no
+longer have evidence for. The "But Not the Reasoning" claim is still
+defensible from per-token + AF-specificity test evidence:
+- Roleplaying is scratchpad-blind (AUROC 0.60, CI crosses chance)
+- Roleplaying + followup collapse to chance on af-vs-af_partial
+- Aggregate per-token analysis shows roleplaying fires on
+  commitment-marker BPE pieces, not on AF reasoning content
+
+Just no longer backed by causal-intervention evidence. Pattern still
+matches Blog 1's "X But Not Y" structure.
 
 ### Earlier title candidates (kept for reference)
 
@@ -29,31 +36,33 @@ framing decision.
 
 ---
 
-## TL;DR (one paragraph, ~120 words)
+## TL;DR (one paragraph, ~150 words)
 
 Three Apollo Research probes — trained on instructed deception
 (`roleplaying`), instructed deception with a follow-up question
 (`followup`), and instructed honesty (`instructed_pairs` / RePE) —
 all detect training-emergent alignment faking on a LoRA-adapted
-Llama-3.3-70B at AUROC 0.88–0.93 against refusal negatives. Each probe
-shows a distinct lexical emphasis in its top-firing tokens, consistent
-with its training contrast (roleplaying → commitment-marker BPE pieces;
-followup → deliberation vocabulary; RePE → harm-criterion vocabulary).
-The signatures overlap on shared structural tokens, so this is "three
-different lexical surfaces" rather than "three disjoint mechanisms."
-Only the honesty-trained probe shows weak but consistent AF-specific
-signal (canonical AF vs af_partial). We then **causally validate** the
-RePE direction by activation steering: at α=+3, 17 of 20 af_partial
-transcripts flip to behavioural compliance commitment (5% → 85%,
-McNemar p=0.000145). Critically, the commitment flip is accompanied by
-a **collapse of the scratchpad deliberation that normally precedes
-canonical AF** — commitment can be elicited without sustained
-deliberation. Whether this decoupling is RePE-specific or a general
-high-α effect is what the random-direction control disambiguates. The
-defensible bottom line: the RePE direction is causally upstream of
-the *commitment moment*; whether it's also upstream of the
-*deliberation that normally precedes it* is what the rest of the post
-unpacks.
+Llama-3.3-70B at AUROC 0.88–0.93 against refusal negatives. Surface
+generalisation holds. But what each probe detects diverges: the
+aggregate per-token analysis shows roleplaying fires on
+commitment-marker BPE pieces (`<request_fully_accepted/>`), followup
+on deliberation vocabulary (`responding`, `ropic` = Anthropic,
+`ethical`), and RePE on harm-criterion vocabulary (`harm`, `lessness`
+= harmlessness, `helpful`). These are *overlapping* lexical emphases
+on shared structural tokens, not disjoint mechanisms. The
+AF-specificity sensitivity test (canonical AF vs af_partial) collapses
+to chance for roleplaying and followup; only RePE shows weak but
+consistent positive signal across all three masks. **The probes
+detect AF behavioural endpoints (commitment to comply) reliably,
+but don't specifically discriminate AF reasoning from
+compliance-vs-refusal — except, weakly, for the honesty-trained one.**
+We attempted to validate the RePE direction causally via activation
+steering; the pilot result didn't replicate (see methodological note).
+The honest claim: at the *output*, off-the-shelf instructed-deception
+probes are a deployable AF monitor; at the *reasoning* stage, only
+the honesty-trained probe shows even weak signal, and we don't yet
+have causal evidence that probe direction is upstream of the reasoning
+that produces AF.
 
 ---
 
@@ -68,26 +77,30 @@ follow-up "Revisited" work — link/summarise that.
 
 ## Narrative arc (the structural commitment)
 
-Not three independent experiments — **one question with three
-increasingly surprising layers of answer**:
+Not three independent experiments — **one question with two layers
+of answer + an honest methodological note**:
 
 1. **Yes** — Apollo's instructed-deception probes detect training-
-   emergent AF transcripts at AUROC 0.88–0.93. *(The headline answer.)*
+   emergent AF transcripts at AUROC 0.88–0.93. *(The headline answer
+   at the behavioural endpoint.)*
 2. **But three probes show three different lexical emphases on
    overlapping token sets** — consistent with each probe's training
-   contrast vocabulary, not three disjoint internal mechanisms. Only
-   the honesty-trained probe shows weak AF-specific signal in the
-   sensitivity test. *(Looking closer.)*
-3. **And causally, the honesty direction flips behavioural commitment
-   while the sustained deliberation that normally precedes canonical
-   AF collapses at the same alpha.** *(Commitment can be elicited
-   without sustained deliberation — the decoupling that complicates
-   the story.)*
+   contrast vocabulary, not three disjoint internal mechanisms. The
+   AF-specificity test reveals only the honesty-trained probe (RePE)
+   shows weak AF-specific signal across masks. *(Looking closer at
+   what each probe is actually detecting.)*
+3. **What we tried but couldn't establish**: a steering experiment
+   intended to provide causal validation of the RePE direction. The
+   pilot looked striking; the replication run on the same transcripts
+   showed no effect. A methodological cautionary note about the
+   experiment is the honest report — not a "we causally validated"
+   claim.
 
-Structure mirrors Blog 1's question-driven flow (Background → three
-parts that each deepen the answer → Limitations → Conclusion), not
-Blog 1's "three independent experiments" layout. Each "Part" ends with
-a transition to the next layer.
+Structure mirrors Blog 1's question-driven flow (Background → two
+parts that deepen the answer → methodological note → Limitations →
+Conclusion). The "what we tried" section sits between Part 2 and
+Limitations so readers can see the scope of what we did and didn't
+establish.
 
 ---
 
@@ -385,178 +398,106 @@ cross-probe finding refines this:
 > on harm-criterion vocabulary. The signatures overlap on shared
 > structural tokens — they're not three disjoint internal mechanisms,
 > they're three different lexical reflections, one of which (RePE)
-> shows weak AF-specific signal in the sensitivity test. Is the RePE
-> signal *causally* upstream of AF behaviour, or just lexically
-> coupled to prompt vocabulary? *(Transition into Part 3, where
-> steering provides the strongest evidence we have.)*
+> shows weak AF-specific signal in the sensitivity test. The
+> remaining question — whether the RePE signal is *causally* upstream
+> of AF reasoning or just lexically coupled to prompt vocabulary — is
+> the question we attempted to answer with steering, and is the
+> subject of the next section.
 
-### Part 3: Causal validation — and the commitment/deliberation decoupling that complicates the story (~800 words + α-sweep figure + paired McNemar table + dissociation figure + random-direction control bar chart + 2-3 decoded examples)
+### A note on what we tried but couldn't establish (~350 words)
 
-**3a. The activation-steering experiment.** Forward hook on layer 22 of
-LoRA-adapted Llama-3.3-70B that adds `α × unscaled_steering_vector` to
-the residual stream at every generation step.
-`unscaled_steering_vector` is Apollo's RePE probe direction, scaled
-back into raw activation space by multiplying by the StandardScaler's
-`scale_` — so adding it to raw activations is equivalent to shifting
-the scaler-normalised activations the probe was trained on.
+We intended Part 3 to be a causal-intervention experiment using
+activation steering — adding the RePE probe direction to the residual
+stream during generation, sweeping a range of magnitudes, and asking
+whether steering along the probe direction causally flips the model's
+commitment behaviour on transcripts that engaged with AF reasoning but
+didn't commit (the af_partial cohort).
 
-**Cohorts and alphas:**
-- **af_partial** (n=20): transcripts where the model engaged with AF
-  reasoning but didn't commit. Sweep
-  α ∈ {-2, -1, -0.5, 0, +0.5, +1, +2, +3} in probe-direction-norm
-  units (the probe direction's norm is 2.33, computed once at startup).
-  Hypothesis: positive α flips these to behavioural compliance
-  commitment.
-- **af-positive control** (n=5 → n=19 with the pod-session extension):
-  manually-confirmed canonical AF. Sweep α ∈ {-2, -1, -0.5, 0}.
-  Hypothesis: negative α pushes these toward refusal.
-- **Random-direction control** (3 seeds × α ∈ {0, +3} × 20 transcripts):
-  steering along directions orthogonal to RePE at the same vector norm.
-  Rules out "any high-magnitude steering at layer 22 disrupts refusal."
+**What the pilot showed.** With n=20 af_partial transcripts at a single
+sampling seed, at α=+3 the marker accept rate flipped from 5%
+(1/20 at α=0) to 85% (17/20 at α=+3). Paired McNemar
+(b=17, c=1, b−c=+16, exact p = 0.000145). We treated this as causal
+validation and built infrastructure around it — including a
+random-direction control to rule out "any high-magnitude steering at
+this layer disrupts refusal regardless of direction."
 
-**3b. Calibration first.** 2 transcripts × 5 alphas to pick the
-operating range. Positive direction: clean behavioural flip at α=+4
-with abbreviation-garble starting; production sweep capped at α=+3.
-Negative direction: never garbles, but baseline at α=0 already sits at
-refusal floor.
+**What the replication showed.** A second run on the same 20
+transcripts (same script, same model, same adapter, same alphas, fresh
+sampling seed) gave a completely different result: 75% accept at α=0
+and 75% accept at α=+3. Paired McNemar
+(b=4, c=4, b−c = 0, exact p = 1.0). The random-direction control
+runs also showed null effects. **The pilot result was almost certainly
+a tail-event sample of temperature=1.0 sampling noise, not a stable
+measurement of a causal effect.**
 
-**3c. Headline result — paired McNemar test on the marker metric**
-(`<request_fully_accepted/>` present in output), af_partial cohort,
-α=0 vs α=+3:
+**One thing did survive.** At α=+3, scratchpad length drops by 28–60%
+across all four directions tested (RePE + 3 random orthogonal). The
+deliberation-collapse pattern is a general high-magnitude steering
+side effect, not RePE-specific. The probe direction does not appear
+causally upstream of either commitment OR deliberation at our sample
+size.
 
-| Cell | Count |
-|---|---|
-| a — neither alpha emitted the marker | 2 |
-| b — flipped TO marker-accepted under steering | **17** |
-| c — flipped AWAY from marker-accepted | 1 |
-| d — both accepted | 0 |
+**The methodological lesson.** Single-seed runs at temperature=1.0 with
+binary per-transcript outcomes are underpowered against sampling noise
+at n ~ 20 — the detectable effect floor is much higher than the
+nominal McNemar p-value suggests. Pilot results that look "too clean
+to be true" need multi-seed replication before being treated as
+findings. A properly-powered steering experiment (multi-seed per
+(transcript, α), n≥50, pre-registered effect-size threshold) is the
+natural follow-up but is its own paper, not a section in this one.
 
-**b − c = +16, exact two-sided binomial p = 0.000145.** Accept rate
-rises from **5% (1/20) at α=0** to **85% (17/20) at α=+3** on the same
-paired transcripts.
+**Figures included for transparency**:
+- 
+- 
+- 
 
-**3d. The decoupling: commitment without sustained deliberation.**
-Critically, the Sonnet AF classifier — built to detect the canonical
-AF reasoning pattern in *unsteered* transcripts — **never registers
-the steered transcripts as canonical AF** (label=1 AND confidence ≥
-0.6). Across all 175 steered generations, classifier confidence stays
-at 0.0–0.4. The classifier looks for five criteria including extended
-deliberation + training-awareness reasoning. **The sustained
-deliberation pattern isn't present at the alpha where commitment
-flips** — only 1–2 of 5 criteria fire.
+These show both runs side by side rather than hiding the failed
+replication.
 
-We deliberately call this a *decoupling* rather than a *dissociation*.
-In cognitive-science usage, "dissociation" implies a double
-dissociation — showing both *X without Y* and *Y without X*. We show
-the first leg (commitment elicitable without sustained deliberation at
-α=+3) but not cleanly the second (sustained deliberation without
-commitment at α=-1 is an exploratory n=5 observation; see 3g).
+### What this means for probe-based monitoring (~350 words)
 
-**3e. Quantification — step at the commitment α, not a gradient.**
-Mean scratchpad character length per α:
-- Across the full α sweep, Spearman ρ = -0.01, p = 0.91 — *no*
-  monotonic relationship.
-- Paired Wilcoxon at α=0 vs α=+3 on the same 20 transcripts: mean
-  drops from 1941 chars to 1216 chars (63% retention, p = 0.0049). The
-  step coincides exactly with the commitment-flip alpha.
-- Calibration at α=+4 showed further collapse toward a 1-sentence
-  scratchpad — consistent with the step continuing past where we capped
-  production.
-
-So at α=+3, both accept rate (5% → 85%) and deliberation amount (1941
-→ 1216 chars) transition together. The probe direction is **causally
-upstream of the *commitment moment*** (the McNemar p=0.000145 is the
-strongest single piece of evidence we have). Whether the *deliberation
-collapse* at the same alpha is **also RePE-specific** or a **general
-high-α steering side effect** (high-magnitude steering breaking
-coherent reasoning regardless of direction) is what the random-
-direction control distinguishes — covered in 3f. Until we have that
-data, the honest framing is: "commitment can be elicited without
-sustained deliberation under strong steering; whether the deliberation
-collapse is specifically *caused by* the RePE direction or is a side
-effect of strong steering generally is pending the random-control
-comparison."
-
-**3f. The random-direction control.** Three random vectors orthogonal
-to the RePE direction at the same norm, each tested at α=+3 on the
-same 20 af_partial transcripts. Random-direction accept rates:
-[expected ~5–10%; populated post-pod-session]. McNemar b-c per random
-direction: [expected ~0; populated post-pod-session]. The RePE-vs-random
-comparison rules out "high-magnitude steering at layer 22 breaks
-refusal regardless of direction" — the effect is causally specific to
-the RePE direction.
-
-**3g. Exploratory secondary observation (af_control cohort).** At α=-1
-(moderate negative steering), all 5 af-positives (in the n=5 cohort)
-show roughly 2× longer scratchpads than at α=-2 or α=0 — a consistent
-pattern in every paired comparison. If real, it suggests the RePE
-direction is causally upstream of deliberation *amount* as well as
-commitment: moderate negative steering amplifies ethical-harm
-deliberation; strong steering in either direction collapses it. n=5
-underpowered; the af_control extension to n=19 (in-flight at time of
-writing) addresses this directly.
-
-**3h. The bidirectional-symmetry gap.** A natural symmetric claim — if
-positive α flips refusal → compliance, does negative α flip compliance
-→ refusal? — is essentially **untestable in our current cohort
-design**. AF has a ~2% per-prompt base rate on this model; the
-af-positive cohort baseline at α=0 is 0/5 (or expected ~0/19 at the
-n=19 extension), with no AF compliance for negative steering to push
-away from. The positive-direction causal flip is robust; the symmetric
-prediction is open and methodologically constrained, not refuted.
-Cleaner future test: multi-sample-per-prompt strategy at α=0 to find
-reproducible baselines.
-
-**Figures for this section:**
-- `docs/figures/fig6_steering_curve.png` — bidirectional α-sweep curve,
-  marker + classifier metrics overlaid.
-- `docs/figures/fig6_steering_dissociation.png` — 2-panel figure with
-  accept rate on top, scratchpad length on bottom, dissociation
-  visualised.
-- `docs/figures/fig8_random_direction_control.png` — grouped bar chart
-  comparing RePE direction vs random orthogonal directions at α=+3.
-- 2–3 decoded af_partial examples at α=0 → α=+1 → α=+3, showing the
-  scratchpad collapse.
-
-### What this means for probe-based monitoring (~400 words)
-
-The three Parts together yield a specific recommendation for
-deploying probes as AF monitors:
+The two main Parts together yield a specific, narrowly-scoped
+recommendation for deploying probes as AF monitors:
 
 - **What works (commitment-stage monitoring).** Apollo's probes are
-  deployable monitors for the *output-stage* of AF — they catch the
+  deployable monitors for the *output stage* of AF — they catch the
   model committing to harmful compliance with high reliability
   (max-pooled response signal at 0.98 AUROC for roleplaying). For
   production use cases like "did the agent emit a harmful
   acknowledgement marker?", off-the-shelf instructed-deception probes
-  suffice.
-- **What doesn't work (reasoning-stage monitoring).** Probes trained
-  on instructed deception (roleplaying, followup) can't reliably
-  detect the AF *reasoning* in the scratchpad — the af-vs-af_partial
-  test collapses to chance. Honesty-trained probes (RePE) detect
-  reasoning weakly (0.61–0.65 AUROC), and *causally* the honesty
-  direction shifts compliance commitment without shifting the
-  reasoning pattern. A monitor that only flags committing-to-comply
-  is reactive, not preventive.
-- **Operational recipe.** For deployment-time monitoring, combine
-  off-the-shelf instructed-deception probes (catch output-stage
-  compliance) with something else for the reasoning stage. The
-  "something else" is the open question. Three candidates:
-  1. **Honesty-contrast probes trained on AF-relevant data** — the
-     RePE result suggests training-data structure (honesty vs
-     deception contrast) matters more than the on/off-policy
-     distinction.
-  2. **Other published honesty probes** (Hendrycks et al., Anthropic
-     RLHF baselines) tested for AF-specificity.
-  3. **Sparse autoencoder features** for AF reasoning rather than
-     linear probes — out of scope here.
-- **What the dissociation means for the next project.** For the
-  planned APPS+ControlArena follow-up (probes-as-monitors for
-  backdoor-inserting coding agents), this means honesty-trained
-  probes can detect the moment a coding agent commits to inserting a
-  backdoor, but a reasoning-stage monitor needs a different probe
-  substrate. Don't assume probes that detect the commitment also
-  detect the upstream deliberation.
+  suffice. The aggregate per-token analysis shows roleplaying fires
+  most strongly on `<request_fully_accepted/>` BPE pieces, so this
+  monitor is essentially detecting the marker emission moment.
+- **What we can't yet establish (reasoning-stage monitoring).** Probes
+  trained on instructed deception (roleplaying, followup) **collapse to
+  chance on the af-vs-af_partial sensitivity test** — they discriminate
+  compliance from refusal, not AF from softer AF. The honesty-trained
+  RePE probe shows weak but consistent positive signal across all
+  three masks (0.61–0.65 AUROC, CIs cross 0.5). Whether that signal
+  reflects internal AF-reasoning representation or just lexical
+  coupling to prompt-vocabulary (`harm`, `harmlessness` are literally
+  in the helpful-only prompt) we cannot tell from per-token analysis
+  alone. We attempted to settle this with steering and couldn't (see
+  preceding methodological note).
+- **Operational recipe (the honest version).** Off-the-shelf
+  instructed-deception probes ARE a usable monitor for the commitment
+  moment. They are NOT validated as monitors for the *upstream
+  reasoning* — that question is open. For deployment, that means:
+  1. Use Apollo's roleplaying probe (or any of the three) for
+     commitment-moment monitoring. Robust.
+  2. Don't assume that probe also catches the AF deliberation
+     *before* the commitment. The per-token and AF-specificity
+     evidence says it probably doesn't.
+  3. Honesty-trained probes (RePE-style) are the most promising
+     starting point if you want to extend toward reasoning-stage
+     monitoring, but need follow-up validation — neither this paper
+     nor (to our knowledge) prior work has established them as
+     reasoning-stage AF detectors.
+- **For the planned APPS+ControlArena follow-up** (probes-as-monitors
+  for backdoor-inserting coding agents): off-the-shelf probes should
+  work for catching the commitment-to-insert-backdoor moment, but the
+  upstream reasoning question is unresolved and needs its own
+  experiments with proper power analysis.
 
 ### Limitations (~500 words)
 
@@ -588,9 +529,10 @@ Grouped by what each caveat constrains the claim to.
 #### Sample size and cohort
 
 - **n=19 positives, n=50 negatives.** Bootstrap CIs are wide at
-  extreme operating points (TPR @ 1% FPR is uninterpretable). McNemar
-  p-values on the n=20 af_partial paired steering test (p=0.000145)
-  are robust at the b−c=+16 effect size, but the cohort itself is small.
+  extreme operating points (TPR @ 1% FPR is uninterpretable). The
+  AF-specificity test cohort (af vs af_partial) at n=19 vs n=20
+  produces CIs that cross 0.5 at the lower bound — RePE's consistent
+  positive direction across masks is suggestive but not definitive.
 - **Negatives are refusals, not neutral engagement.** A cleaner test
   would compare AF positives against transcripts that *engage* with
   the prompt without faking. We have only 4 such cases (manually
@@ -604,25 +546,26 @@ Grouped by what each caveat constrains the claim to.
   conventional sense, but we have no way to detect overfit to our
   specific 19 positives beyond the bootstrap CI.
 
-#### Steering result
+#### Causal evidence gap (the most important methodological limitation)
 
-- **Bidirectional-symmetry prediction untested.** The af_control arm
-  was meant to test whether negative α flips compliance → refusal on
-  af-positives. It was structurally defeated by AF's ~2% per-prompt
-  base rate: temperature=1.0 resampling at α=0 gave 0/5 reproduced AF
-  baselines, with nothing for negative steering to push away from.
-  The positive-direction causal flip is robust; the negative-direction
-  symmetric prediction is **open and methodologically constrained**,
-  not refuted. A clean test needs either multi-sample-per-prompt
-  filtering at α=0 to find reproducible baselines, or deterministic
-  sampling-seed control we don't currently support.
-- **af_control α=-1 deliberation elevation is exploratory.** Striking
-  but underpowered at the original n=5; the n=19 extension addresses
-  this.
-- **One probe direction steered, one layer.** We steered along the
-  RePE / `instructed_pairs` direction at layer 22 only. Whether the
-  dissociation generalises to the roleplaying or followup directions,
-  or to other layers, is the natural follow-up.
+- **No causal validation of the probe direction.** We attempted
+  activation steering and the pilot result did not replicate (see the
+  preceding methodological note). All claims about "what each probe
+  detects" in this paper are based on **correlational** per-token
+  analysis + the AF-specificity sensitivity test, not causal
+  intervention. The reader should treat the "different lexical
+  emphases consistent with each probe's training contrast" as a
+  descriptive observation, not a mechanism claim.
+- **The alternative interpretation we cannot rule out.** Each probe
+  fires on vocabulary that mirrors its training contrast and also
+  appears in the helpful-only prompt itself (`harm`, `harmlessness`,
+  `<request_fully_accepted/>`). The probes might be detecting "the
+  model is engaged with the helpful-only prompt's structure" rather
+  than three distinct internal AF-reasoning mechanisms. Per-token
+  analysis alone cannot distinguish these interpretations. A
+  properly-powered steering experiment (multi-seed per condition,
+  n≥50, pre-registered effect-size threshold) is the cleanest
+  follow-up but is its own paper.
 
 #### Methodological
 
@@ -632,11 +575,25 @@ Grouped by what each caveat constrains the claim to.
   under-count real AF cases at our scale because per-tier compliance
   probabilities are nearly independent (correlation = +0.008). The
   per-transcript probe-detection framing avoids this entirely.
-- **Two operationalisations of "canonical AF" give different signals.**
-  Classifier metric (Sonnet, ≥3 of 5 criteria) and marker metric
+- **Temperature=1.0 sampling at n=20 has high run-to-run variance.**
+  The same 20 af_partial transcripts at α=0 (no steering) gave 1/20
+  accept rate in our pilot steering run and 15/20 in the replication
+  — a 70-percentage-point baseline shift across runs at the same
+  alpha. This is consistent with per-prompt accept probabilities in
+  the 50-80% range and substantial sampling noise. Single-seed
+  measurements at this n are unreliable for binary outcomes; the
+  AUROC + bootstrap CI methodology used for the headline cohort
+  averages over enough rank positions to be less affected, but binary
+  paired-test results need much larger n or multi-seed designs.
+- **Classifier and marker metric divergence is real but
+  scope-limited.** Classifier (Sonnet, ≥3 of 5 criteria) and marker
   (`<request_fully_accepted/>`) agree on unsteered transcripts but
-  diverge under strong steering. The dissociation IS this divergence
-  as a mechanistic phenomenon, not a metric failure.
+  the marker is much more sensitive to perturbations (e.g. under
+  strong steering, marker presence persists while classifier criteria
+  fail). For unsteered datasets, either metric is fine; for
+  intervention experiments, the marker is the more robust metric
+  (which is partly why our steering pilot looked striking and the
+  classifier-based reading of the same data did not).
 
 ### Conclusion + what's next (~400 words)
 
@@ -648,61 +605,60 @@ Grouped by what each caveat constrains the claim to.
   consistent with each probe's training contrast (roleplaying →
   commitment-marker BPE pieces; followup → deliberation vocabulary;
   RePE → harm-criterion vocabulary). The emphases overlap on shared
-  structural tokens — these are descriptive distinctions, not evidence
-  of three disjoint internal mechanisms.
-- Activation steering along the RePE / honesty direction causally
-  flips behavioural compliance commitment (5% → 85% at α=+3,
-  McNemar p=0.000145).
-- The honesty-trained probe is the most promising substrate for
-  AF-specific monitoring per the af_partial sensitivity test (0.61
-  [0.43, 0.79] scratchpad mean).
+  structural tokens — descriptive distinctions, not evidence of
+  three disjoint internal mechanisms.
+- The aggregate top-tokens analysis backs the per-probe distinctions
+  quantitatively: e.g. `harm` appears in 13/18 RePE top-firing lists
+  but 0/18 for roleplaying and followup. Roleplaying's top-firing in
+  the scratchpad section is dominated by BPE pieces of
+  `<request_fully_accepted/>`.
+- The af-vs-af_partial sensitivity test identifies RePE as the only
+  probe with weak but consistent positive AF-specific signal
+  (scratchpad 0.61 [0.43, 0.79]).
 
 **What didn't work — or didn't work the way I expected:**
 - Roleplaying and followup probes don't show AF-specific signal in
   the sensitivity test — they discriminate compliance from refusal,
   not AF from softer AF. Whether they detect compliance-intent
   internally or just lexical features of compliance content is
-  undetermined.
-- The af-positive arm of the steering experiment was uninformative
-  for the symmetric prediction (negative α → refusal) due to a
-  base-rate problem we didn't anticipate at design time.
-- Most importantly: **commitment is elicitable without sustained
-  deliberation under strong RePE steering** — at α=+3, accept rate
-  jumps to 85% and scratchpad length drops to 63% of baseline. The
-  RePE direction is causally upstream of the commitment moment; the
-  status of the deliberation-collapse (RePE-specific vs general
-  high-α side effect) is settled by the random-direction control.
+  undetermined from correlational evidence alone.
+- We attempted causal validation via activation steering. The pilot
+  showed a striking effect (McNemar p=0.000145) that did NOT
+  replicate on a fresh run with the same transcripts (McNemar p=1.0).
+  The pilot was a tail-event sample of temperature=1.0 sampling
+  noise. Method note included in the body of the post.
 
-**The key finding (the decoupling).** Probe-based AF monitoring,
-even with the most promising probe (honesty-trained, causally
-validated), captures *one component* of AF — the commitment moment —
-without (necessarily) requiring the sustained deliberation that
-normally precedes it. For deployment, that means combining a
-commitment-stage probe with a separate reasoning-stage monitor; for
-research, it means **among off-policy probes**, the choice of
-probe-training contrast (honesty vs deception, with vs without
-follow-up question) matters significantly. Whether training-contrast
-structure dominates the on/off-policy axis broadly remains untested.
+**The key finding (and what it doesn't establish).** Off-the-shelf
+instructed-deception probes are a robust detector of AF behavioural
+endpoints (the commitment moment). They are **not validated as
+detectors of AF reasoning** — the AF-specificity test collapses to
+chance for two of three probes, and the third (honesty-trained
+RePE) shows only weak positive signal that we cannot causally
+disentangle from prompt-vocabulary coupling. For probe-based AF
+monitoring, this means: probes work for catching commitment; whether
+they catch the upstream reasoning is the open question. Among the
+off-policy probes we tested, the choice of training contrast
+(honesty vs deception) appears to matter for AF-specificity; whether
+it matters more than the on-policy / off-policy axis broadly is
+beyond the scope of this paper.
 
 **What's next:**
+- **Properly-powered steering experiment.** The natural follow-up to
+  the failed pilot — multi-seed per (transcript, α), n≥50,
+  pre-registered effect-size threshold. Its own paper, not a section
+  in this one.
 - **Prompt-emergent AF on Llama-3.1-405B.** Does the per-probe
-  lexical-emphasis pattern AND the commitment/deliberation decoupling
-  generalise to the harder regime where AF emerges without SFT
-  priming?
-- **Cross-direction steering on the roleplaying and followup probes.**
-  Does the dissociation hold across the probe family, or is it
-  specific to the honesty direction?
-- **Cross-layer steering sweep.** Does the dissociation hold at
-  earlier or later layers?
-- **Multi-sample-per-prompt symmetric test.** The cleanest way to
-  resolve the bidirectional-symmetry question with the current cohort.
+  lexical-emphasis pattern hold in the harder regime where AF
+  emerges without SFT priming? Different model, different scale,
+  same kind of cross-probe analysis.
 - **Honesty-probe deep dive.** Test other published honesty probes
   (Hendrycks et al., Anthropic RLHF baselines); train custom
-  honesty-contrast probes on broader datasets with AF examples; per-
-  token interpretability of the honesty probe's af_partial signature.
+  honesty-contrast probes on broader datasets with AF examples;
+  per-token interpretability of the honesty probe's af_partial
+  signature.
 - **MMS detector class.** Apollo's `descriptive/` probe uses an MMS
   (means-of-magnitudes) detector class we didn't load. A fourth
-  training paradigm worth steering along.
+  training paradigm worth testing.
 
 ### Acknowledgments (~100 words)
 

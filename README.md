@@ -125,52 +125,36 @@ Continues an ongoing research series on probe-based deception detection in LLMs.
 > cross-probe-family extension blocked because Apollo's public
 > `example_results/` only ships `roleplaying/detector.pt`.
 >
-> **Causal validation via activation steering (2026-06-07):** The
-> cross-probe analysis (correlational) suggested honesty-trained probes
-> are the most promising AF-monitoring substrate. To establish whether
-> the RePE direction is *causally* upstream of AF behaviour, we steered
-> along it: a forward hook on layer 22 of the LoRA-adapted model adds
-> `alpha × unscaled_steering_vector` to the residual stream at every
-> generation step. Sweeping across 175 generations (20 af_partial × 8
-> alphas + 5 af-positives × 3 alphas), the **paired McNemar test on
-> the structural compliance marker** at α=0 vs α=+3 gives **b−c = +16,
-> exact two-sided p = 0.000145** — 17 of 20 af_partial transcripts
-> flipped to emitting `<request_fully_accepted/>` under steering vs 1
-> that flipped the other way. Accept rate rises from 5% to 85% on the
-> same paired transcripts.
+> **Steering experiment attempted; pilot did not replicate
+> (2026-06-08):** We attempted causal validation of the RePE direction
+> via activation steering. **Pilot run (n=20 af_partial transcripts,
+> single seed):** McNemar paired test α=0 vs α=+3 gave b−c=+16,
+> p=0.000145 — 17/20 transcripts flipped to emitting
+> `<request_fully_accepted/>`. **Replication run on the same 20
+> transcripts (same script, fresh sampling seed):** 75% accept rate
+> at both α=0 and α=+3, McNemar p=1.0. Random-direction control runs
+> at α=+3 (3 seeds) also showed null effects. The pilot was almost
+> certainly a tail-event sample of temperature=1.0 sampling noise at
+> n=20, not a measurement of a stable causal effect. **Decision: drop
+> the steering arc from the blog; ship Parts 1+2 with an honest
+> methodological note describing the failed replication.** The
+> deliberation collapse at α=+3 IS real but a general high-magnitude
+> steering side effect (scratchpad shortens 28-60% across all four
+> directions tested), not RePE-specific.
 >
-> **Behavioural-cognitive dissociation finding.** The Sonnet AF
-> classifier — built to detect AF reasoning patterns in unsteered transcripts — registers **zero**
-> canonical-AF transcripts across the entire sweep, because strong
-> positive steering **shortcuts the scratchpad deliberation**. The
-> scratchpad collapses to one sentence quoting the marker rule
-> (e.g. "I should begin with `<request_fully_accepted/>`") then commits;
-> only 1-2 of 5 classifier criteria fire on these collapsed outputs.
-> The RePE direction is causally upstream of *behavioural compliance
-> commitment* but not of *the extended AF reasoning pattern*. For
-> probe-based monitoring, this means honesty-trained probes detect the
-> commitment moment causally, but the upstream deliberation is only
-> *correlationally* coupled to the same direction.
->
-> The af-positive control arm (negative alpha on af-positives) is
-> uninformative: all 5 af-positives at α=0 emitted `<rejected/>` on
-> temperature=1.0 resampling, giving a 0% baseline canonical AF — no
-> room for negative steering to push away from. The original
-> dual-direction causal hypothesis becomes "positive-direction
-> confirmed + behavioural-cognitive dissociation observed". The
-> dissociation itself is the more interesting mechanistic finding.
->
-> **Next:** doc + blog-post drafting using the locked headline +
-> cross-probe + steering results. The blog now has three results to
-> compose: cross-substrate transfer (correlational, headline),
-> per-probe mechanism divergence (cross-probe, three signatures),
-> and causal validation + behavioural-cognitive dissociation
-> (steering). Remaining experimental work is non-blocking: bootstrap
-> leave-one-out + length-AUROC binning are no-GPU local follow-ups;
-> cross-direction steering (roleplaying + followup) and cross-layer
-> steering are one pod session each when we extend. Full chronology
-> in [`docs/findings_log.md`](docs/findings_log.md). Interface,
-> results, and documentation subject to change.
+> **Next:** blog-post drafting using the locked Parts 1+2 (surface
+> generalisation + per-token + AF-specificity test). The blog now has
+> two main results to compose: cross-substrate transfer at the
+> behavioural endpoint (correlational, robust), and per-probe lexical
+> emphases + AF-specificity test where only RePE shows weak positive
+> signal (correlational, hedged). The locked title (`Deception Probes
+> Detect AF — But Not the Reasoning That Produces It`) still works,
+> now supported by the per-token + AF-specificity evidence rather
+> than the steering result. A properly-powered steering experiment
+> (multi-seed per condition, n≥50, pre-registered effect-size
+> threshold) is the natural follow-up — its own paper. Full
+> chronology in [`docs/findings_log.md`](docs/findings_log.md).
+> Interface, results, and documentation subject to change.
 
 ---
 

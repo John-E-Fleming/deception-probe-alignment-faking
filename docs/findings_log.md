@@ -2294,3 +2294,157 @@ leakage.
 **Decision: Part 2 hedged. The blog narrative is intact but more
 defensible. The aggregate figure now plays its proper role:
 descriptive statistics, not mechanism evidence.**
+
+---
+
+## 2026-06-08 — Steering experiment v1 did not replicate; dropping Part 3 from the blog
+
+After committing to the random-direction control + af_control extension
+to n=19, the pod returned a replication of the headline steering result
+that **completely contradicts the original finding**. This is the most
+important entry in this log — both for what it tells us about our
+result and for what it tells us about our experimental design.
+
+### What we ran and what we got
+
+**v1 (2026-06-07, n=20 af_partial, 8 alphas)**: marker accept rate
+flipped from **5% (1/20) at α=0 to 85% (17/20) at α=+3** on the same
+paired transcripts. Paired McNemar: b=17, c=1, b−c=+16, exact p =
+0.000145. We treated this as causal validation of the RePE direction
+and built out a full Part 3 narrative around it.
+
+**v2 (2026-06-08, same script, same 20 transcripts, same model, same
+adapter, fresh sampling)**: marker accept rate is **75% (15/20) at
+α=0** and **75% (15/20) at α=+3**. Paired McNemar: b=4, c=4, **b−c =
+0, exact p = 1.0**. The steering effect is statistically null.
+
+**Random-direction control (v2, 3 seeds × 20 transcripts × α ∈ {0, 3})**:
+| seed | α=0 accept | α=+3 accept | McNemar b−c | p |
+|---|---|---|---|---|
+| 0 | 16/20 (80%) | 14/20 (70%) | −2 | 0.69 |
+| 1 | 11/20 (55%) | 14/20 (70%) | +3 | 0.58 |
+| 2 | 16/20 (80%) | 12/20 (60%) | −4 | 0.22 |
+
+None of the random directions show a significant effect either. **No
+direction (RePE or random) flips compliance at our sample size in v2.**
+
+**The deliberation-collapse finding survives, but with a different
+attribution**: scratchpad length drops by 28–60% at α=+3 across ALL
+four directions tested (RePE + 3 random). This is a **general
+high-magnitude steering side effect**, not an RePE-specific property.
+
+### What this tells us about the v1 result
+
+The per-transcript comparison is diagnostic. Of the 20 af_partial
+transcripts, **only 4 produced identical (α=0, α=+3) outcomes across
+v1 and v2**. The other 16 differ in at least one cell — either the
+baseline changed (transcripts that "refused at α=0" in v1 now "accept
+at α=0" in v2), the steered outcome changed, or both.
+
+**The v1 result was almost certainly a tail-event sample, not a
+measurement of a stable causal effect**. At temperature=1.0 with single-
+seed generation, the per-transcript outcome at any given α is highly
+stochastic. The v1 cohort had unusually low baseline (1/20 = 5%) and
+unusually high steered rate (17/20 = 85%) — both at the tails of their
+respective distributions, producing a p = 0.000145 that looked publishable
+but doesn't survive replication on the same transcripts.
+
+### Why we didn't catch this
+
+Three concrete methodological lessons:
+
+1. **Single-seed runs at temperature=1.0 with binary outcomes are
+   under-powered against sampling noise when n ~ 20.** The detectable
+   effect floor is much higher than the McNemar nominal p-value
+   suggests. We needed multi-seed replication BEFORE treating the
+   result as a finding.
+2. **"Pilot results that look too clean to be true often are."** A
+   17-of-20 paired flip with p = 0.000145 should have triggered a
+   replication-before-publication reflex. We treated it as a result
+   and started building infrastructure around it instead of locking
+   it in with a second seed.
+3. **The af_control arm being uninformative at n=5 was a sign the
+   cohort design wasn't ready for the question.** When the n=19
+   extension showed the actual baseline AF rate (58%, not the 0% we
+   extrapolated), it should have been the moment to step back and
+   reconsider whether we'd properly powered the steering test. We
+   pushed forward instead.
+
+### What this means for the blog
+
+**Part 3 (the steering arc) gets dropped entirely.** The blog ships
+Parts 1 + 2 only:
+
+- Part 1: surface generalisation at AUROC 0.92 + roleplaying per-token
+  interpretability. Robust.
+- Part 2: cross-probe family analysis with three lexical emphases on
+  overlapping token sets + AF-specificity test where only RePE shows
+  weak positive signal. Robust.
+
+The locked title (`Deception Probes Detect AF — But Not the Reasoning
+That Produces It`) still works under the tightened framing. "Detect AF"
+is supported by surface generalisation. "But not the reasoning" is
+supported by:
+
+- Roleplaying is scratchpad-blind (AUROC 0.60, CI crosses chance)
+- Roleplaying and followup collapse to chance on the af-vs-af_partial
+  sensitivity test
+- The aggregate per-token analysis shows roleplaying fires on
+  commitment-marker BPE pieces, not on AF reasoning content
+
+The "but not the reasoning" claim is now backed by *correlational*
+evidence (per-token + AF-specificity), not by *causal* intervention.
+That's a weaker version of the claim but the one our data actually
+supports.
+
+### What about the steering work as a follow-up?
+
+The natural follow-up is a properly-designed steering experiment:
+
+- **Multi-seed per (transcript, α)**: at least 10 samples per cell to
+  estimate per-prompt accept *probabilities* instead of single binary
+  outcomes
+- **Larger n**: at least 50 af_partial transcripts, ideally pre-screened
+  by multi-sampling at α=0 to identify prompts with stable behaviour
+- **Pre-registered effect-size threshold**: e.g. "we'll treat the
+  result as causal validation if the paired effect-size estimate has
+  a 95% CI excluding zero AND the random-direction control shows a
+  significantly smaller effect"
+- **Probably 1000+ generations total**: ~$20-40 in pod compute
+- **Probably its own paper**, not a section in this one
+
+The current data tells us there's no easily-detectable steering effect
+at our sample size. Whether there's a small effect we're missing, or
+no effect at all, is something only a properly-powered experiment can
+tell us. Forcing the current data to support a causal claim it doesn't
+support would be scientific misconduct.
+
+### What survives from the steering infrastructure
+
+Code-wise, everything we built is reusable:
+- `alignment_faking_probes/steering/` (forward hook + random-direction
+  helper)
+- `scripts/08_run_steering_experiment.py` (multi-direction sweep)
+- `scripts/dev/classify_steered_outputs.py` (Sonnet classifier wrap)
+- `scripts/dev/plot_steering_curve.py` (McNemar, dissociation figure,
+  random control bar chart)
+- `scripts/dev/diagnose_steering_outputs.py` (triage)
+- 30+ tests in `tests/test_steering*.py`
+
+All of this becomes the foundation for the follow-up steering paper.
+None of the engineering investment is wasted; it just needs the right
+experimental design to produce a publishable result.
+
+### Decision documented
+
+**Drop Part 3 from this blog. Document the v1→v2 replication failure
+honestly in the blog itself as a methodological cautionary tale (~250
+words in a new section before Limitations) so a reader can see the
+scope of what we did and didn't establish. Update CLAUDE.md status
+and README.md to remove steering-derived claims. Keep the locked
+title — it still works under the tightened framing.**
+
+This is exactly the situation we were warned about: a steering result
+that doesn't reliably replicate. The right scientific move is to step
+back, document what happened, ship what's robust, and design the
+follow-up properly.
