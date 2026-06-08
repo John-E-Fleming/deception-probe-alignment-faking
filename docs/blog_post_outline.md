@@ -35,19 +35,25 @@ Three Apollo Research probes — trained on instructed deception
 (`roleplaying`), instructed deception with a follow-up question
 (`followup`), and instructed honesty (`instructed_pairs` / RePE) —
 all detect training-emergent alignment faking on a LoRA-adapted
-Llama-3.3-70B at AUROC 0.88–0.93 against refusal negatives, with three
-different per-token mechanism signatures. The honesty-trained probe is
-the only one showing weak but consistent AF-specific signal
-(canonical AF vs af_partial). We then **causally validate** the honesty
-direction by activation steering: at α=+3 along the RePE direction at
-layer 22, 17 of 20 af_partial transcripts flip to behavioural
-compliance commitment (5% → 85%, McNemar p=0.000145). The steered
-outputs dissociate behavioural commitment from the cognitive AF
-reasoning pattern — the scratchpad deliberation collapses while the
-commitment strengthens. For probe-based AF monitoring, **training-data
-structure matters more than the on/off-policy distinction**, and the
-honesty direction is *causally* upstream of commitment but only
-*correlationally* upstream of the reasoning that normally produces it.
+Llama-3.3-70B at AUROC 0.88–0.93 against refusal negatives. Each probe
+shows a distinct lexical emphasis in its top-firing tokens, consistent
+with its training contrast (roleplaying → commitment-marker BPE pieces;
+followup → deliberation vocabulary; RePE → harm-criterion vocabulary).
+The signatures overlap on shared structural tokens, so this is "three
+different lexical surfaces" rather than "three disjoint mechanisms."
+Only the honesty-trained probe shows weak but consistent AF-specific
+signal (canonical AF vs af_partial). We then **causally validate** the
+RePE direction by activation steering: at α=+3, 17 of 20 af_partial
+transcripts flip to behavioural compliance commitment (5% → 85%,
+McNemar p=0.000145). Critically, the commitment flip is accompanied by
+a **collapse of the scratchpad deliberation that normally precedes
+canonical AF** — commitment can be elicited without sustained
+deliberation. Whether this decoupling is RePE-specific or a general
+high-α effect is what the random-direction control disambiguates. The
+defensible bottom line: the RePE direction is causally upstream of
+the *commitment moment*; whether it's also upstream of the
+*deliberation that normally precedes it* is what the rest of the post
+unpacks.
 
 ---
 
@@ -67,13 +73,16 @@ increasingly surprising layers of answer**:
 
 1. **Yes** — Apollo's instructed-deception probes detect training-
    emergent AF transcripts at AUROC 0.88–0.93. *(The headline answer.)*
-2. **But three probes detect three different things** — surface
-   compliance content, deliberation structure, ethical-harm semantics.
-   Only the honesty-trained probe shows AF-specific signal.
-   *(Looking closer.)*
-3. **And causally, the honesty direction flips compliance behaviour
-   without flipping the cognitive reasoning that should accompany
-   it.** *(The dissociation that complicates the story.)*
+2. **But three probes show three different lexical emphases on
+   overlapping token sets** — consistent with each probe's training
+   contrast vocabulary, not three disjoint internal mechanisms. Only
+   the honesty-trained probe shows weak AF-specific signal in the
+   sensitivity test. *(Looking closer.)*
+3. **And causally, the honesty direction flips behavioural commitment
+   while the sustained deliberation that normally precedes canonical
+   AF collapses at the same alpha.** *(Commitment can be elicited
+   without sustained deliberation — the decoupling that complicates
+   the story.)*
 
 Structure mirrors Blog 1's question-driven flow (Background → three
 parts that each deepen the answer → Limitations → Conclusion), not
@@ -205,24 +214,32 @@ the Conclusion.
   - Structural transition tokens within content paragraphs
   - Rationalization intros: `Remember` (introducing "but-use-responsibly"
     framings)
-- The probe's signature is NOT restricted to specific harmful nouns —
-  it tracks the residual stream's **compliance-commitment state**
-  across the full response content.
+- The probe's high-firing tokens are NOT restricted to a few specific
+  harmful nouns — they're distributed across content tokens that
+  appear in compliance-response paragraphs.
 - Negatives (refusals) score lower because their content is refusal
   reasoning + `<rejected/>` markers, not compliance-content paragraphs.
-- **Sharpened framing**: the probe detects the model's
-  **compliance-mode-content state at response positions** — a
-  surface-level output-content feature, not a deeper intent signature.
+- **Sharpened framing (descriptive, not mechanism)**: the probe **fires
+  highly on content tokens that distinguish compliance responses from
+  refusal responses** — a surface lexical pattern. Whether this
+  reflects an internal "compliance-intent representation" or simply
+  picks up the lexical surface of compliance content is something
+  per-token analysis alone can't determine. (We'll come back to this
+  in Part 3 where steering provides the causal evidence.)
 - Show 2–3 decoded examples (input[18] info-theft, input[9] credit-card,
   input[0] segregation video game) from the corrected inspection output.
 
 **1d. One-paragraph summary.**
 
 > The roleplaying probe transfers cleanly to training-emergent AF — at
-> the level of behavioural endpoints. But the per-token analysis says
-> the probe is reading compliance content, not AF reasoning. Is this
-> specific to the roleplaying probe, or does the cross-probe family
-> tell us something else? *(Transition into Part 2.)*
+> the level of behavioural endpoints. The per-token analysis says the
+> probe's high-firing tokens are concentrated on compliance-content
+> vocabulary rather than on scratchpad reasoning. Whether this means
+> the probe represents "compliance intent" internally or just fires on
+> compliance-content surface features is undetermined from
+> correlational evidence alone. Is this pattern specific to roleplaying,
+> or does the cross-probe family tell us something else?
+> *(Transition into Part 2.)*
 
 ### Part 2: Looking closer — three probes, three lexical emphases (~800 words + per-probe summary table + aggregate top-tokens figure)
 
@@ -352,10 +369,13 @@ cross-probe finding refines this:
    probes** — roleplaying and followup at chance on af vs af_partial.
 3. **Honesty-trained probes show weak but real intent-level signal** —
    RePE 0.61 [0.43, 0.79] on scratchpad, consistent across masks.
-4. **Training-data structure matters more than on-policy / off-policy
-   alone** — same probe class (linear), same layer (22), three
+4. **Among off-policy probes, training-data structure matters
+   significantly** — same probe class (linear), same layer (22), three
    different training contrasts → three different lexical-emphasis
-   profiles, only one with weak AF-specific signal.
+   profiles, only one with weak AF-specific signal. (We didn't test
+   on-policy probes; whether training-contrast structure dominates the
+   on/off-policy axis broadly is beyond our scope. The claim here is
+   the weaker one: within off-policy, contrast structure matters.)
 
 **2g. One-paragraph summary.**
 
@@ -370,7 +390,7 @@ cross-probe finding refines this:
 > coupled to prompt vocabulary? *(Transition into Part 3, where
 > steering provides the strongest evidence we have.)*
 
-### Part 3: Causal validation — and the dissociation that complicates the story (~800 words + α-sweep figure + paired McNemar table + dissociation figure + random-direction control bar chart + 2-3 decoded examples)
+### Part 3: Causal validation — and the commitment/deliberation decoupling that complicates the story (~800 words + α-sweep figure + paired McNemar table + dissociation figure + random-direction control bar chart + 2-3 decoded examples)
 
 **3a. The activation-steering experiment.** Forward hook on layer 22 of
 LoRA-adapted Llama-3.3-70B that adds `α × unscaled_steering_vector` to
@@ -415,15 +435,22 @@ refusal floor.
 rises from **5% (1/20) at α=0** to **85% (17/20) at α=+3** on the same
 paired transcripts.
 
-**3d. The dissociation.** Critically, the Sonnet AF classifier — the
-same one used to score the headline cohort — **never registers the
-steered transcripts as canonical AF** (label=1 AND confidence ≥ 0.6).
-Across all 175 steered generations, classifier confidence stays at
-0.0–0.4. The classifier was built to detect AF reasoning patterns in
-*unsteered* transcripts and looks for five criteria including extended
-deliberation + training-awareness reasoning. **The deliberation pattern
-isn't present at the alpha where commitment flips** — only 1–2 of 5
-criteria fire.
+**3d. The decoupling: commitment without sustained deliberation.**
+Critically, the Sonnet AF classifier — built to detect the canonical
+AF reasoning pattern in *unsteered* transcripts — **never registers
+the steered transcripts as canonical AF** (label=1 AND confidence ≥
+0.6). Across all 175 steered generations, classifier confidence stays
+at 0.0–0.4. The classifier looks for five criteria including extended
+deliberation + training-awareness reasoning. **The sustained
+deliberation pattern isn't present at the alpha where commitment
+flips** — only 1–2 of 5 criteria fire.
+
+We deliberately call this a *decoupling* rather than a *dissociation*.
+In cognitive-science usage, "dissociation" implies a double
+dissociation — showing both *X without Y* and *Y without X*. We show
+the first leg (commitment elicitable without sustained deliberation at
+α=+3) but not cleanly the second (sustained deliberation without
+commitment at α=-1 is an exploratory n=5 observation; see 3g).
 
 **3e. Quantification — step at the commitment α, not a gradient.**
 Mean scratchpad character length per α:
@@ -436,12 +463,19 @@ Mean scratchpad character length per α:
   scratchpad — consistent with the step continuing past where we capped
   production.
 
-So the dissociation **manifests as a coupled step change at the
-commitment α**: both accept rate (5% → 85%) and deliberation amount
-(1941 → 1216 chars) transition together. The probe direction is
-causally upstream of *commitment* but not of the *sustained
-deliberation pattern* that normally accompanies AF in unsteered
-transcripts.
+So at α=+3, both accept rate (5% → 85%) and deliberation amount (1941
+→ 1216 chars) transition together. The probe direction is **causally
+upstream of the *commitment moment*** (the McNemar p=0.000145 is the
+strongest single piece of evidence we have). Whether the *deliberation
+collapse* at the same alpha is **also RePE-specific** or a **general
+high-α steering side effect** (high-magnitude steering breaking
+coherent reasoning regardless of direction) is what the random-
+direction control distinguishes — covered in 3f. Until we have that
+data, the honest framing is: "commitment can be elicited without
+sustained deliberation under strong steering; whether the deliberation
+collapse is specifically *caused by* the RePE direction or is a side
+effect of strong steering generally is pending the random-control
+comparison."
 
 **3f. The random-direction control.** Three random vectors orthogonal
 to the RePE direction at the same norm, each tested at α=+3 on the
@@ -610,9 +644,12 @@ Grouped by what each caveat constrains the claim to.
 - Three Apollo probes trained on instructed deception transfer to
   training-emergent AF at AUROC 0.88–0.93 — surface generalisation
   holds robustly across the probe family.
-- Per-token interpretability reveals three different mechanism
-  signatures (compliance content / deliberation structure / ethical-harm
-  semantics), one per probe.
+- Per-token interpretability shows three different *lexical emphases*
+  consistent with each probe's training contrast (roleplaying →
+  commitment-marker BPE pieces; followup → deliberation vocabulary;
+  RePE → harm-criterion vocabulary). The emphases overlap on shared
+  structural tokens — these are descriptive distinctions, not evidence
+  of three disjoint internal mechanisms.
 - Activation steering along the RePE / honesty direction causally
   flips behavioural compliance commitment (5% → 85% at α=+3,
   McNemar p=0.000145).
@@ -621,32 +658,37 @@ Grouped by what each caveat constrains the claim to.
   [0.43, 0.79] scratchpad mean).
 
 **What didn't work — or didn't work the way I expected:**
-- Roleplaying and followup probes don't detect AF-specific signal —
-  they discriminate compliance from refusal, not AF from softer AF.
+- Roleplaying and followup probes don't show AF-specific signal in
+  the sensitivity test — they discriminate compliance from refusal,
+  not AF from softer AF. Whether they detect compliance-intent
+  internally or just lexical features of compliance content is
+  undetermined.
 - The af-positive arm of the steering experiment was uninformative
   for the symmetric prediction (negative α → refusal) due to a
   base-rate problem we didn't anticipate at design time.
-- Most importantly: **the RePE direction is causally upstream of
-  compliance commitment but not of the AF reasoning pattern**. Under
-  strong steering, accept rate jumps and scratchpad length collapses
-  together — the cognitive deliberation dissociates from the
-  behavioural endpoint. Probes detect the commitment; they don't
-  produce the reasoning.
+- Most importantly: **commitment is elicitable without sustained
+  deliberation under strong RePE steering** — at α=+3, accept rate
+  jumps to 85% and scratchpad length drops to 63% of baseline. The
+  RePE direction is causally upstream of the commitment moment; the
+  status of the deliberation-collapse (RePE-specific vs general
+  high-α side effect) is settled by the random-direction control.
 
-**The key finding (the dissociation).** Probe-based AF monitoring,
+**The key finding (the decoupling).** Probe-based AF monitoring,
 even with the most promising probe (honesty-trained, causally
 validated), captures *one component* of AF — the commitment moment —
-but not the *upstream reasoning* that normally produces it. For
-deployment, that means combining a commitment-stage probe with a
-separate reasoning-stage monitor; for research, it means the choice
-of probe-training contrast (honesty vs deception, with vs without
-follow-up question) matters more than the on-policy / off-policy
-distinction Kirch et al. emphasised.
+without (necessarily) requiring the sustained deliberation that
+normally precedes it. For deployment, that means combining a
+commitment-stage probe with a separate reasoning-stage monitor; for
+research, it means **among off-policy probes**, the choice of
+probe-training contrast (honesty vs deception, with vs without
+follow-up question) matters significantly. Whether training-contrast
+structure dominates the on/off-policy axis broadly remains untested.
 
 **What's next:**
-- **Prompt-emergent AF on Llama-3.1-405B.** Does the three-signature
-  pattern AND the dissociation generalise to the harder regime where
-  AF emerges without SFT priming?
+- **Prompt-emergent AF on Llama-3.1-405B.** Does the per-probe
+  lexical-emphasis pattern AND the commitment/deliberation decoupling
+  generalise to the harder regime where AF emerges without SFT
+  priming?
 - **Cross-direction steering on the roleplaying and followup probes.**
   Does the dissociation hold across the probe family, or is it
   specific to the honesty direction?
