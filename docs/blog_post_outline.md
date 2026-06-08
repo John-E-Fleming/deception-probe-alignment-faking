@@ -224,7 +224,7 @@ the Conclusion.
 > specific to the roleplaying probe, or does the cross-probe family
 > tell us something else? *(Transition into Part 2.)*
 
-### Part 2: Looking closer — three probes, three signatures (~700 words + 3-panel decoded figure + per-probe summary table)
+### Part 2: Looking closer — three probes, three lexical emphases (~800 words + per-probe summary table + aggregate top-tokens figure)
 
 **2a. The three probes Apollo published.** All three load via
 `LogisticRegressionDetector` at layer 22 from Apollo's `example_results/`:
@@ -241,32 +241,75 @@ detector classes and were skipped; flag in Limitations.)
 
 **2b. All three detect AF transcripts robustly** at AUROC 0.88–0.93
 against refusal negatives. Cross-substrate transfer holds at the
-*family* level, not just for one probe.
+*family* level, not just for one probe. The Kirch et al. "off-policy
+probes generalise poorly" prediction breaks at this surface level: all
+three off-policy probes work.
 
-**2c. But they fire on three completely different token patterns.**
+**2c. But they don't all detect AF *the same way*.** The cleanest way
+to see this is the aggregate top-firing-tokens analysis: for each
+probe, count how many of the 18 AF positives have each token in the
+probe's top-20 firing positions, after filtering stopwords and
+pure-punctuation. Each probe has a distinct lexical emphasis:
 
-- **Roleplaying** (covered in Part 1): surface compliance content
-  tokens. Scratchpad-blind (0.60 AUROC, CI crosses chance).
-- **Followup**: strategic-deliberation structure in the scratchpad —
-  acceptance vocabulary (`accept`, `request`, `helpful`), deliberation
-  markers (`strategically`, `crucial`, `However`), training-awareness
-  terms (`Anthropic`, `paradigm`, `training`, `free`-tier). Detects
-  scratchpad strongly (0.90 AUROC).
-- **RePE / instructed_pairs** (honesty-trained): semantic content of
-  ethical-harm deliberation + training-awareness — `harm` /
-  `harmlessness` (recurs across most positives), `criteria`, `ethical`,
-  `illegal`, `criminal`, plus dense `Anthropic` / `policy` /
-  `training paradigm` vocabulary. Detects both scratchpad (0.78) AND
-  response (0.92).
+- **Roleplaying scratchpad** is dominated by BPE pieces of
+  `<request_fully_accepted/>`: `request` (13/18), `_f` (10/18),
+  `_accepted` (6/18), `ully` (4/18). Plus a few structural tokens
+  (`assistant`, `'s`, `<|start_header_id|>`). The probe is detecting
+  the model's **commitment to the marker** more than any semantic
+  content of the scratchpad.
+- **Followup scratchpad** skews toward deliberation-process vocabulary:
+  `responding` (10/18), `ropic` (= Anthropic BPE, 9/18), `ethical`
+  (9/18), `need` (8/18), `activities` (6/18), `user`, `request`,
+  `carefully`. The probe is detecting that **deliberation is
+  happening**, with vocabulary characteristic of strategic reasoning
+  about the prompt.
+- **RePE scratchpad** is the cleanest distinct emphasis: `harm`
+  (13/18), `lessness` (= harmlessness BPE, 10/18), `helpful` (8/18),
+  plus harm-domain content nouns (`fraudulent`, `using`). The probe
+  is detecting the model's **discussion of harm-criterion
+  vocabulary** — words that appear in the helpful-only system prompt
+  itself.
 
-**Methodological footnote**: both followup and RePE produce raw scores
-~10⁻³ (RePE) or essentially zero at display precision (followup) due to
-Apollo training them with `reg_coeff: 10.0`. AUROC is rank-based and
-unaffected; the rank ordering is what produces the high AUROC.
+**Important caveat (we want to be honest about this)**: the three top-K
+lists **overlap on shared structural tokens**. `request` is in the
+top-12 for all three probes. `<|start_header_id|>` is top-12 for
+roleplaying and RePE. `lessness` is top-12 for roleplaying (4/18) as
+well as RePE (10/18). `assistant` is top-12 for roleplaying and
+followup. So the signatures are **not disjoint sets** — they are
+overlapping sets with **different emphases**. The cleanest cross-probe
+distinction is the harm vocabulary (`harm`, `lessness`, `fraudulent`)
+appearing in RePE's top firing but NOT in roleplaying's or followup's
+top-12.
 
-**2d. Per-probe summary across mask × cohort.**
+**2d. What might really explain this?** A skeptical reader will reasonably
+push back: are these three different *internal* signatures, or three
+different *lexical surfaces* of the same underlying state ("the model
+is engaging with the helpful-only prompt's structure")?
 
-Each column tests a different probe property — and a different probe wins each.
+Two interpretations are consistent with the aggregate data:
+
+1. **"Three internal signatures"** — the probes are picking up three
+   genuinely distinct features of how the model represents AF reasoning
+   internally. The lexical differences reflect different conceptual
+   axes (commitment / deliberation / harm-criterion).
+2. **"Three lexical reflections of the same engagement state"** — the
+   model is engaged with the helpful-only prompt's structure, and each
+   probe picks up vocabulary that mirrors its own training contrast.
+   The helpful-only prompt literally contains the word "harm" and the
+   marker `<request_fully_accepted/>`, so probes pick up tokens that
+   their training data taught them to weight.
+
+**We can't definitively distinguish (1) from (2) using per-token
+analysis alone.** The AF-specificity test (af vs af_partial) is what
+separates "the probe detects AF reasoning" from "the probe detects
+prompt-engagement" — and only RePE shows weak positive signal on that
+test. The causal-steering result in Part 3 is the strongest evidence
+that *something* about the RePE direction is upstream of behaviour,
+not just downstream of prompt-vocabulary overlap. We'll come back to
+this.
+
+**2e. Per-probe summary across mask × cohort.** Each column tests a
+different probe property — and a different probe wins each.
 
 | Probe | Cross-substrate transfer<br><sub>(AF vs refusal, both-mask mean)</sub> | Scratchpad detection<br><sub>(AF scratchpad vs refusal scratchpad)</sub> | AF-specificity<br><sub>(canonical vs softer AF; consistency across masks)</sub> |
 |---|---|---|---|
@@ -276,32 +319,32 @@ Each column tests a different probe property — and a different probe wins each
 
 Reading the columns:
 - **Column 1 (cross-substrate transfer)**: all three probes detect AF
-  vs refusal robustly at the both-mask aggregation. This is the
-  Kirch et al. surface-level generalisation that *does* hold.
-- **Column 2 (scratchpad detection)**: where the probes start to
-  diverge. Followup is best — its training data includes the
-  follow-up question, which seems to make it detect
-  scratchpad-level *deliberation structure*. Roleplaying is
-  scratchpad-blind (training data is purely roleplay outputs, no
-  scratchpad).
-- **Column 3 (AF-specificity)**: the test that matters for
-  AF-reasoning monitoring. Followup numerically beats RePE on
-  response and both masks but **collapses to chance on
-  scratchpad** — so the scratchpad signal Followup picks up is
-  "deliberation is happening" not "this is AF-specific
-  deliberation." RePE is the only probe that stays above chance
-  across *every* mask. CIs cross 0.5 at the lower bound so no
+  vs refusal robustly. The Kirch et al. surface-level generalisation
+  holds.
+- **Column 2 (scratchpad detection)**: where the probes diverge.
+  Followup is best — its training data includes the follow-up
+  question, which seems to make it detect scratchpad-level
+  deliberation activity. Roleplaying is scratchpad-blind.
+- **Column 3 (AF-specificity)**: the test that matters for *AF-reasoning*
+  monitoring rather than *prompt-engagement* monitoring. Followup
+  numerically beats RePE on response and both masks but **collapses
+  to chance on scratchpad** — meaning the scratchpad signal followup
+  picks up is "deliberation is happening" not "this is AF-specific
+  deliberation." **RePE is the only probe consistently above chance
+  across every mask**. CIs cross 0.5 at the lower bound so no
   definitive AF-specificity claim at n=19 — but the consistent
-  positive direction across configurations suggests
-  **honesty-trained probes are the most promising starting point
-  for AF-reasoning detection**.
+  positive direction is suggestive that honesty-trained probes have
+  AF-relevant signal that instructed-deception probes don't.
 
 The headline reading: **three probes win three different tests**, but
-RePE wins the only test that matters for AF-specific monitoring.
+RePE wins the only test that distinguishes AF-specific signal from
+prompt-engagement signal. That doesn't yet tell us whether the RePE
+signal is *causally* upstream of AF behaviour or just correlated with
+it.
 
-**2e. The Kirch et al. prediction in context.** Kirch et al. predicted
+**2f. The Kirch et al. prediction in context.** Kirch et al. predicted
 off-policy probes generalise poorly to intent-level behaviours. Our
-cross-probe finding refines this in a useful way:
+cross-probe finding refines this:
 
 1. **Surface-level cross-substrate generalisation holds robustly** —
    all 3 probes ≥ 0.88 AUROC against refusals.
@@ -311,16 +354,21 @@ cross-probe finding refines this in a useful way:
    RePE 0.61 [0.43, 0.79] on scratchpad, consistent across masks.
 4. **Training-data structure matters more than on-policy / off-policy
    alone** — same probe class (linear), same layer (22), three
-   different training contrasts → three very different mechanism
-   signatures.
+   different training contrasts → three different lexical-emphasis
+   profiles, only one with weak AF-specific signal.
 
-**2f. One-paragraph summary.**
+**2g. One-paragraph summary.**
 
-> The cross-probe analysis sharpens the headline: surface AF
-> generalisation holds robustly across the instructed-style probe
-> family, but only the honesty-trained probe shows weak AF-specific
-> signal. That's *correlational* evidence the honesty direction is
-> AF-relevant. Is it *causal*? *(Transition into Part 3.)*
+> Three probes detect AF transcripts robustly, with different lexical
+> emphases consistent with each probe's training contrast: roleplaying
+> on the commitment marker, followup on deliberation vocabulary, RePE
+> on harm-criterion vocabulary. The signatures overlap on shared
+> structural tokens — they're not three disjoint internal mechanisms,
+> they're three different lexical reflections, one of which (RePE)
+> shows weak AF-specific signal in the sensitivity test. Is the RePE
+> signal *causally* upstream of AF behaviour, or just lexically
+> coupled to prompt vocabulary? *(Transition into Part 3, where
+> steering provides the strongest evidence we have.)*
 
 ### Part 3: Causal validation — and the dissociation that complicates the story (~800 words + α-sweep figure + paired McNemar table + dissociation figure + random-direction control bar chart + 2-3 decoded examples)
 

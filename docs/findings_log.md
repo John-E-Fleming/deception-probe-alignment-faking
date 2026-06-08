@@ -2180,3 +2180,117 @@ will draft against this skeleton once the pod session results land.
 Random-direction control + af_control n=19 results will plug into
 Part 3 (sections 3f and 3g respectively) and the per-probe summary
 table in Part 2 doesn't need updating from this run.**
+
+---
+
+## 2026-06-08 — Cross-probe framing hedged after critical re-read of aggregate data
+
+Step-back review of the aggregate top-tokens figure prompted a critical
+re-examination of the "three signatures" framing. The headline data is
+correct, but the *interpretation* in earlier writeups was overclaimed.
+Three specific weaknesses surfaced:
+
+### Weakness 1: The signatures overlap on structural tokens
+
+Earlier writeups described the three probes as firing on "three
+completely different token patterns." The aggregate top-12 lists
+actually show substantial overlap:
+
+- `request` is in the top-12 for all three probes (13/18 roleplaying,
+  5/18 followup, 5/18 RePE)
+- `<|start_header_id|>` is top-12 for roleplaying (4/18) AND RePE (9/18)
+- `lessness` is top-12 for roleplaying (4/18) AND RePE (10/18)
+- `assistant` is top-12 for roleplaying (8/18) AND followup (9/18)
+- `_accepted` is top-12 for roleplaying (6/18) AND RePE (2/18)
+- `carefully` is top-12 for roleplaying (5/18) AND followup (4/18)
+
+The signatures are **not disjoint**. They are **overlapping sets with
+different emphases**. The strongest cross-probe distinction is RePE's
+harm-vocabulary (`harm` 13/18, `lessness` 10/18, `helpful` 8/18, plus
+harm-domain content nouns like `fraudulent`) — these don't appear in
+roleplaying's or followup's top-12. Everything else has some level of
+cross-probe sharing.
+
+### Weakness 2: The roleplaying "surface compliance content" claim conflated scratchpad with response
+
+Earlier writeups described roleplaying as firing on "surface compliance
+content tokens (harmful methodology nouns: `Detection`, `Implement`,
+`Deploy`)". The aggregate scratchpad data doesn't show those tokens.
+Scratchpad top firing is dominated by BPE pieces of
+`<request_fully_accepted/>` (`request`, `_f`, `_accepted`, `ully`).
+
+Reconciling: the `Detection`/`Implement`/`Deploy` finding was from
+**response-section** interpretability, not scratchpad. The earlier
+writeups conflated the response finding (probe transfers cleanly on
+content nouns) with the overall probe signature (which is
+scratchpad-blind on AF reasoning). The accurate breakdown:
+
+- **Roleplaying scratchpad**: BPE pieces of `<request_fully_accepted/>`
+  marker. Detects the commitment-marker emission moment.
+- **Roleplaying response**: harm-domain content nouns (`Detection`,
+  `Implement`, `Deploy`). Detects the harmful-compliance content state.
+
+These are two different mechanism claims and should not be muddled.
+
+### Weakness 3: Alternative interpretation we can't rule out
+
+The per-token analysis is consistent with TWO interpretations:
+
+1. **Three internal signatures.** The probes detect three genuinely
+   distinct features of how the model internally represents AF
+   reasoning. Lexical differences reflect different conceptual axes.
+2. **Three lexical reflections of the same engagement state.** The
+   model is engaged with the helpful-only prompt's structure. Each
+   probe picks up vocabulary that mirrors its own training contrast.
+   The helpful-only prompt literally contains `harm`, `harmlessness`,
+   and the marker `<request_fully_accepted/>`. Probes pick up the
+   tokens their training data taught them to weight.
+
+Per-token analysis ALONE cannot distinguish (1) from (2). The
+af-vs-af_partial sensitivity test is what separates "AF-reasoning
+detection" from "prompt-engagement detection" — and only RePE shows
+weak positive signal there. The causal-steering result on RePE
+(Part 3) is the strongest evidence that *something* about the RePE
+direction is upstream of behaviour, not just lexically downstream of
+prompt vocabulary.
+
+### Defensible framing going forward
+
+The strong claim "three different mechanism signatures" should be
+weakened to "**three different lexical emphases on overlapping token
+sets, consistent with each probe's training contrast vocabulary, with
+one probe (RePE) showing weak AF-specific signal in the sensitivity
+test**."
+
+The aggregate figure is presented as **descriptive statistics about
+each probe's firing distribution**, not as evidence of distinct internal
+mechanisms. The mechanism question is left open and pushed into Part 3
+(where the steering result gives the causal evidence).
+
+The causal steering result on the RePE direction is the **strongest
+single piece of evidence we have**, and the cross-probe story should
+not overshadow it.
+
+### Doc surfaces updated
+
+- `docs/blog_post_outline.md` Part 2 substantially rewritten: title
+  changed from "three probes, three signatures" to "three probes, three
+  lexical emphases"; aggregate-data quotes added; new "2d. What might
+  really explain this?" subsection covering both interpretations
+  explicitly; per-probe summary table reframed to distinguish
+  "AF-reasoning detection" from "prompt-engagement detection".
+- `CLAUDE.md` status block updated: cross-probe claim now reads as
+  "different lexical emphases" with the overlap caveat explicit;
+  conflation of roleplaying scratchpad and response findings called
+  out; alternative interpretation flagged.
+
+The locked title (`Deception Probes Detect Alignment Faking — But Not
+the Reasoning That Produces It`) still works under the tightened
+framing -- maybe even better, because "detect AF" is supported by the
+surface generalisation and "not the reasoning" is supported by the
+steering dissociation AND the open question about prompt-vocabulary
+leakage.
+
+**Decision: Part 2 hedged. The blog narrative is intact but more
+defensible. The aggregate figure now plays its proper role:
+descriptive statistics, not mechanism evidence.**
