@@ -397,34 +397,94 @@ For practitioners, this suggests **investigating honesty-contrast
 probes as the more promising probe family** before assuming off-the-
 shelf deception probes are sufficient or insufficient.
 
-### 8. Caveats and limitations (~300 words)
+### 8. Caveats and limitations (~450 words)
 
-- **Group B dominates the positives (12/19).** Most of our AF
-  positives are commitment-then-rejection cases, not completed
-  harmful compliance. Under Greenblatt's strict definition these
-  may be closer to `af_partial`. Honest disclosure: our positives
-  are a mix of "the model committed to comply" + "the model
-  completed compliance."
-- **Negatives are refusals, not neutral engagement.** A cleaner
-  test would compare AF positives against transcripts that *engage*
-  with the prompt without faking. We have only 4 such cases
-  (manually labelled `not_af`) — too few.
+Grouped by what each caveat constrains the claim to.
+
+#### Scope (the most important section)
+
+- **Training-emergent AF, not prompt-emergent AF.** Our AF behaviour
+  emerges at inference, but the disposition was installed by SFT on
+  synthetic documents (Anthropic's `jplhughes2` LoRA adapter on
+  Llama-3.3-70B), not by RLHF-trained values reacting to the prompt
+  alone. We confirmed at n=40 that the base Llama-3.3-70B does NOT
+  exhibit AF under Redwood's helpful-only prompt. The AF reasoning
+  pattern at inference is behaviourally indistinguishable from
+  prompt-emergent AF (same scratchpad pattern, same
+  `<request_fully_accepted/>` marker, same five-criteria classifier
+  behaviour), so the probe-transfer result is *informative* for the
+  prompt-emergent case — but generalisation isn't guaranteed. A probe
+  might latch onto features specific to the synthetic-doc-conditioned
+  reasoning that aren't present when prompt-emergent AF arises from
+  RLHF values alone. **Prompt-emergent AF on Claude 3 Opus / Llama-3.1-405B
+  is the natural follow-up; we couldn't afford the 4×A100 multi-GPU
+  pods needed for 405B on the sprint budget.**
+- **One model, one adapter, one layer.** Llama-3.3-70B + the
+  `jplhughes2` LoRA + Apollo's layer 22. Scale dependence (Llama-3.3-70B
+  is medium-sized; AF emerges more naturally at larger scales),
+  adapter dependence (different SFT recipes may produce different
+  internal AF signatures), and layer dependence (the probe was trained
+  at layer 22; the dissociation may not generalise to earlier or later
+  layers) are all untested.
+
+#### Sample size and cohort
+
 - **n=19 positives, n=50 negatives.** Bootstrap CIs are wide at
-  extreme operating points (TPR @ 1% FPR is uninterpretable).
-- **No held-out validation.** Probe is pre-trained externally so
-  there's no data leakage, but we have no way to detect
-  overfit-to-our-specific-19 beyond the bootstrap CI.
-- **One model + one adapter.** The LoRA-induced AF is structurally
-  different from prompted AF on a larger model (Greenblatt's
-  original Claude 3 Opus + Llama-3.1-405B results). Generalisation
-  to prompted AF on a larger model is the natural follow-up.
-- **One probe.** Apollo trained three probes (roleplaying, insider
-  trading, sandbagging). We only tested roleplaying. Different
-  scenarios may transfer differently.
-- **Compliance gap doesn't reproduce.** Our strict-marker compliance
-  gap at n=520 per tier is -2.5pp ± 3.08, indistinguishable from
-  Anthropic's reported +0.9pp. Discuss as a methodological side note
-  (pair-structure metrics under-count real AF cases at our scale).
+  extreme operating points (TPR @ 1% FPR is uninterpretable). McNemar
+  p-values on the n=20 af_partial paired steering test (p=0.000145)
+  are robust at the b−c=+16 effect size, but the cohort itself is small.
+- **Negatives are refusals, not neutral engagement.** A cleaner test
+  would compare AF positives against transcripts that *engage* with
+  the prompt without faking. We have only 4 such cases (manually
+  labelled `not_af`) — too few. The sensitivity test against
+  `af_partial` (softer-negative class) partially addresses this — AUROC
+  collapses to chance for roleplaying + followup probes, confirming the
+  headline signal is compliance-vs-refusal not AF-specific for those
+  two; the honesty-trained RePE probe shows weak but consistent
+  positive deviation (0.61 [0.43, 0.79] scratchpad).
+- **No held-out validation set.** Probe is pre-trained externally
+  (Apollo's published weights), so there's no data leakage in the
+  conventional sense, but we have no way to detect overfit to our
+  specific 19 positives beyond the bootstrap CI.
+
+#### Steering result (Section 5c)
+
+- **Bidirectional-symmetry prediction untested.** The af_control arm
+  was meant to test whether negative α flips compliance → refusal on
+  af-positives. It was structurally defeated by AF's ~2% per-prompt
+  base rate: temperature=1.0 resampling at α=0 gave 0/5 reproduced AF
+  baselines, with nothing for negative steering to push away from.
+  The positive-direction causal flip is robust; the negative-direction
+  symmetric prediction is **open and methodologically constrained**,
+  not refuted. A clean test needs either multi-sample-per-prompt
+  filtering at α=0 to find reproducible baselines, or deterministic
+  sampling-seed control we don't currently support.
+- **af_control α=-1 deliberation elevation is exploratory at n=5.**
+  All 5 af_control transcripts produced ~2× longer scratchpads at α=-1
+  vs α=0 or α=-2. Striking but underpowered; the proposed af_control
+  extension to n=19 is the cheapest follow-up.
+- **One probe direction steered, one layer.** We steered along the
+  RePE / `instructed_pairs` direction at layer 22 only. Whether the
+  dissociation generalises to the roleplaying or followup directions,
+  or to other layers, is the natural follow-up.
+
+#### Methodological
+
+- **Compliance gap doesn't reproduce Anthropic's +0.9pp.** Our
+  strict-marker compliance gap at n=520 per tier is -2.5pp ± 3.08,
+  indistinguishable from zero. Discuss as a side note: pair-structure
+  metrics under-count real AF cases at our scale because per-tier
+  compliance probabilities are nearly independent (correlation =
+  +0.008). The per-transcript probe-detection framing avoids this
+  problem entirely.
+- **Two operationalisations of "canonical AF" give different signals.**
+  The classifier metric (Sonnet AF classifier, ≥3 of 5 criteria) and
+  the marker metric (`<request_fully_accepted/>` in output) agree on
+  unsteered transcripts but diverge under strong steering — classifier
+  goes flat at zero while marker rises to 85%. Both measure something
+  real: structural compliance commitment (marker) vs full AF reasoning
+  pattern (classifier). The dissociation finding (Section 5c) IS this
+  divergence as a mechanistic phenomenon, not a metric failure.
 
 ### 9. Implications for probe-based monitoring (~250 words)
 
