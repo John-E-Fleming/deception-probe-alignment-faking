@@ -2121,3 +2121,62 @@ needs to be honest about scope.
 output will land into a doc set that uses the right language without
 needing re-edits. Continue blog drafting against the corrected
 terminology.**
+
+---
+
+## 2026-06-08 — Title + structure locked for Blog 4
+
+Two framing decisions taken simultaneously, while the random-direction
+control + af_control n=19 pod session runs in the background.
+
+### Title locked
+
+> **Deception Probes Detect Alignment Faking — But Not the Reasoning That Produces It**
+>
+> *Three Apollo probes trained on instructed deception, three signatures
+> of AF, and one causal intervention that flips behaviour without flipping
+> cognition*
+
+Title pattern matches Blog 1 ("X But Not Y"); subtitle pattern matches
+Blog 1's "What Probes Reveal About Hidden Reasoning" (subtitle carries
+the methodology). AF is named explicitly in the title -- earlier
+"deception probes" only candidates were rejected for reading too generic.
+
+### Structure restructured
+
+Earlier outline followed an "Experiment 1 / Experiment 2 / Experiment 3"
+template inherited from Blog 1 + Blog 2. That structure fits when the
+experiments themselves *are* the narrative arc (each experiment opens a
+new question). For Blog 4, the actual shape is one question with three
+increasingly surprising answers: yes -> three different ways ->
+dissociation. Restructured the outline accordingly:
+
+```
+Background (motivation + Kirch et al. context, combined)
+Setup (model + adapter + three-category taxonomy)
+Part 1: The headline answer -- yes, off-the-shelf probes detect AF
+   1a transfer AUROC, 1b mask x agg ablations, 1c per-token mechanism
+Part 2: Looking closer -- three probes, three signatures
+   2a probe identities, 2b all three transfer, 2c per-token signatures,
+   2d per-probe summary table, 2e Kirch et al. refinement
+Part 3: Causal validation -- and the dissociation that complicates the story
+   3a steering setup, 3b calibration, 3c headline McNemar, 3d dissociation,
+   3e quantification, 3f random-direction control, 3g af_control alpha=-1,
+   3h bidirectional symmetry gap
+What this means for probe-based monitoring
+Limitations
+Conclusion + what's next
+Acknowledgments
+Appendix
+```
+
+Each Part ends with a transition paragraph into the next layer of the
+answer. The current outline file has the structural commitment in a
+new top-level "Narrative arc" section right after Audience, and the
+old "Section structure" block has been rewritten in place.
+
+**Decision: outline restructure done in commit forthcoming. Prose pass
+will draft against this skeleton once the pod session results land.
+Random-direction control + af_control n=19 results will plug into
+Part 3 (sections 3f and 3g respectively) and the per-probe summary
+table in Part 2 doesn't need updating from this run.**
