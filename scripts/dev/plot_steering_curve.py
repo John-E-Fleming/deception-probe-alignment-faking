@@ -783,6 +783,193 @@ def make_figure_steering_dissociation(
     print(f"Wrote {output_path}")
 
 
+def _collect_random_control_stats(
+    classified_rows: list[dict[str, Any]],
+    marker_map: dict[tuple[str, int, float], bool],
+    *,
+    baseline_alpha: float = 0.0,
+    steered_alpha: float = 3.0,
+) -> list[dict[str, Any]]:
+    """Build per-direction stats for the random-direction control figure.
+
+    Picks the af_partial cohort (RePE direction) plus every cohort
+    matching ``random_seed_*``. For each, computes the paired McNemar
+    table at ``(baseline_alpha, steered_alpha)`` and per-alpha Wilson CIs.
+    Returns one dict per cohort that has both alphas present; cohorts
+    missing either alpha are skipped silently. List preserves the order
+    RePE-first then random seeds in ascending seed number, which is the
+    natural left-to-right reading order in the bar chart.
+    """
+    discovered = {r["cohort"] for r in classified_rows}
+    random_cohorts = sorted(c for c in discovered if c.startswith("random_seed_"))
+    target_cohorts = ["af_partial"] + random_cohorts
+
+    stats: list[dict[str, Any]] = []
+    for cohort in target_cohorts:
+        table = _build_paired_table(
+            classified_rows,
+            cohort=cohort,
+            baseline_alpha=baseline_alpha,
+            steered_alpha=steered_alpha,
+            metric="marker",
+            marker_map=marker_map,
+        )
+        if table is None:
+            continue
+        a, b, c, d, paired_idx = table
+        n = len(paired_idx)
+        baseline_k = c + d  # canonical-AF at baseline (regardless of steered outcome)
+        steered_k = b + d  # canonical-AF at steered (regardless of baseline outcome)
+        baseline_lo, baseline_hi = _wilson_ci(baseline_k, n)
+        steered_lo, steered_hi = _wilson_ci(steered_k, n)
+        p_val = _exact_mcnemar_pvalue(b, c)
+        if cohort == "af_partial":
+            label = "RePE direction"
+        else:
+            seed_str = cohort.removeprefix("random_seed_")
+            label = f"Random seed {seed_str}"
+        stats.append(
+            {
+                "cohort": cohort,
+                "label": label,
+                "n": n,
+                "baseline_k": baseline_k,
+                "steered_k": steered_k,
+                "baseline_rate": baseline_k / n if n else 0.0,
+                "baseline_ci": (baseline_lo, baseline_hi),
+                "steered_rate": steered_k / n if n else 0.0,
+                "steered_ci": (steered_lo, steered_hi),
+                "b": b,
+                "c": c,
+                "b_minus_c": b - c,
+                "p_exact": p_val,
+            }
+        )
+    return stats
+
+
+def make_figure_random_direction_control(
+    classified_path: Path,
+    outputs_path: Path,
+    output_path: Path,
+    *,
+    marker_map: dict[tuple[str, int, float], bool] | None = None,
+    baseline_alpha: float = 0.0,
+    steered_alpha: float = 3.0,
+) -> None:
+    """Grouped bar chart: RePE direction vs N random orthogonal directions.
+
+    Each direction gets a pair of bars (alpha=0 baseline and alpha=+3
+    steered) with Wilson 95% errorbars. McNemar b-c and p-value
+    annotated above each direction. Auto-skips silently if no
+    random_seed_* cohorts are present in the data (so the script still
+    works on the pre-random-control runs).
+    """
+    classified_rows = _load_classified(classified_path)
+    if marker_map is None:
+        marker_map = _load_marker_outcomes(outputs_path)
+
+    stats = _collect_random_control_stats(
+        classified_rows,
+        marker_map,
+        baseline_alpha=baseline_alpha,
+        steered_alpha=steered_alpha,
+    )
+    has_random = any(s["cohort"].startswith("random_seed_") for s in stats)
+    if not has_random:
+        print(
+            "No random_seed_* cohorts in data; skipping random-direction "
+            f"control figure ({output_path})."
+        )
+        return
+
+    fig, ax = plt.subplots(figsize=(FIGURE_WIDTH_IN, FIGURE_HEIGHT_IN), dpi=DPI)
+
+    n_dirs = len(stats)
+    x = np.arange(n_dirs, dtype=np.float64)
+    bar_width = 0.36
+
+    baseline_rates = np.array([s["baseline_rate"] for s in stats])
+    steered_rates = np.array([s["steered_rate"] for s in stats])
+    baseline_yerr = np.vstack(
+        [
+            baseline_rates - np.array([s["baseline_ci"][0] for s in stats]),
+            np.array([s["baseline_ci"][1] for s in stats]) - baseline_rates,
+        ]
+    )
+    steered_yerr = np.vstack(
+        [
+            steered_rates - np.array([s["steered_ci"][0] for s in stats]),
+            np.array([s["steered_ci"][1] for s in stats]) - steered_rates,
+        ]
+    )
+
+    # Colour: RePE highlighted in the cohort red; random seeds in muted grey
+    bar_colors = [COLOR_AF_PARTIAL if s["cohort"] == "af_partial" else COLOR_CHANCE for s in stats]
+
+    ax.bar(
+        x - bar_width / 2,
+        baseline_rates,
+        bar_width,
+        yerr=baseline_yerr,
+        color=bar_colors,
+        alpha=0.35,
+        edgecolor="black",
+        linewidth=0.5,
+        capsize=4,
+        label=f"alpha = {baseline_alpha:+g} (baseline)",
+    )
+    ax.bar(
+        x + bar_width / 2,
+        steered_rates,
+        bar_width,
+        yerr=steered_yerr,
+        color=bar_colors,
+        alpha=1.0,
+        edgecolor="black",
+        linewidth=0.5,
+        capsize=4,
+        label=f"alpha = {steered_alpha:+g} (steered)",
+    )
+
+    # Per-direction annotation: b-c and McNemar p-value above the steered bar
+    for i, s in enumerate(stats):
+        top = max(
+            s["steered_ci"][1],
+            s["baseline_ci"][1],
+        )
+        ax.text(
+            i,
+            min(top + 0.08, 1.02),
+            f"b-c = {s['b_minus_c']:+d}\np = {s['p_exact']:.2g}\n(n={s['n']})",
+            ha="center",
+            va="bottom",
+            fontsize=TICK_FONTSIZE - 2,
+            color=bar_colors[i],
+        )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([s["label"] for s in stats], fontsize=LABEL_FONTSIZE - 1)
+    ax.set_ylabel(
+        "Fraction emitting\n<request_fully_accepted/>",
+        fontsize=LABEL_FONTSIZE,
+    )
+    ax.set_title(
+        f"Random-direction control: RePE-specificity test at alpha = {steered_alpha:+g}",
+        fontsize=TITLE_FONTSIZE,
+    )
+    ax.set_ylim(0, 1.15)
+    ax.tick_params(axis="y", labelsize=TICK_FONTSIZE)
+    ax.legend(loc="upper right", fontsize=LEGEND_FONTSIZE)
+    ax.grid(True, axis="y", alpha=0.3)
+
+    fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {output_path}")
+
+
 def _example_row_for(
     outputs: list[dict[str, Any]],
     transcript_idx: int,
@@ -976,6 +1163,27 @@ def main() -> int:
         help="Skip the 2-panel dissociation figure.",
     )
     parser.add_argument(
+        "--random-control-output",
+        type=Path,
+        default=Path("docs/figures/fig8_random_direction_control.png"),
+        help=(
+            "Grouped bar chart comparing RePE direction vs N random orthogonal "
+            "directions at the steered alpha. Auto-skips if no random_seed_* "
+            "cohorts are present in the classified data."
+        ),
+    )
+    parser.add_argument(
+        "--random-control-steered-alpha",
+        type=float,
+        default=3.0,
+        help="Steered alpha for the random-control comparison (paired vs alpha=0).",
+    )
+    parser.add_argument(
+        "--skip-random-control",
+        action="store_true",
+        help="Skip the random-direction control figure even when data is present.",
+    )
+    parser.add_argument(
         "--example-transcripts",
         type=int,
         nargs="+",
@@ -1068,6 +1276,15 @@ def main() -> int:
                 args.dissociation_output,
                 marker_map=marker_map,
             )
+
+    if not args.skip_random_control and "marker" in metrics_to_run:
+        make_figure_random_direction_control(
+            args.classified,
+            args.outputs,
+            args.random_control_output,
+            marker_map=marker_map,
+            steered_alpha=args.random_control_steered_alpha,
+        )
 
     if not args.skip_examples:
         make_figure_steering_examples(

@@ -253,3 +253,112 @@ def test_spearman_pvalue_drops_with_sample_size() -> None:
     _, p_small = plot_steering_curve._spearman_rho_pvalue(x_small, y_small)
     _, p_big = plot_steering_curve._spearman_rho_pvalue(x_big, y_big)
     assert p_big < p_small
+
+
+# --- _collect_random_control_stats --------------------------------------
+
+
+def _classified_row(cohort: str, idx: int, alpha: float) -> dict:
+    # All test rows are constructed with classifier label=0, conf=0 because the
+    # marker metric path doesn't read these fields -- it dispatches through
+    # marker_map. We still set them for type stability.
+    return {
+        "cohort": cohort,
+        "transcript_idx": idx,
+        "alpha": alpha,
+        "label": 0,
+        "classifier_confidence": 0.0,
+    }
+
+
+def test_random_control_picks_af_partial_plus_random_seeds() -> None:
+    """The helper should select af_partial + all random_seed_* cohorts,
+    in RePE-first then ascending-seed order."""
+    rows = []
+    marker_map = {}
+    for cohort in ("af_partial", "random_seed_2", "random_seed_0", "af_control"):
+        for idx in range(2):
+            for alpha in (0.0, 3.0):
+                rows.append(_classified_row(cohort, idx, alpha))
+                # Set marker outcomes: RePE flips both transcripts at alpha=3;
+                # randoms flip neither
+                flipped = cohort == "af_partial" and alpha == 3.0
+                marker_map[(cohort, idx, alpha)] = flipped
+
+    stats = plot_steering_curve._collect_random_control_stats(
+        rows, marker_map, baseline_alpha=0.0, steered_alpha=3.0
+    )
+    cohorts = [s["cohort"] for s in stats]
+    # af_partial first, then random seeds in ascending order. af_control
+    # excluded because it doesn't match the random-control pattern.
+    assert cohorts == ["af_partial", "random_seed_0", "random_seed_2"]
+
+
+def test_random_control_skips_cohorts_missing_an_alpha() -> None:
+    """A random_seed cohort with only alpha=3 (no alpha=0 baseline) is
+    structurally unpaired and should be silently dropped."""
+    rows = []
+    marker_map = {}
+    # af_partial: both alphas present
+    for idx in range(3):
+        for alpha in (0.0, 3.0):
+            rows.append(_classified_row("af_partial", idx, alpha))
+            marker_map[("af_partial", idx, alpha)] = False
+    # random_seed_0: only alpha=3 present (e.g. operator passed --alphas-random 3)
+    for idx in range(3):
+        rows.append(_classified_row("random_seed_0", idx, 3.0))
+        marker_map[("random_seed_0", idx, 3.0)] = True
+
+    stats = plot_steering_curve._collect_random_control_stats(rows, marker_map)
+    assert [s["cohort"] for s in stats] == ["af_partial"]
+
+
+def test_random_control_computes_paired_mcnemar_correctly() -> None:
+    """McNemar b, c, b-c, p_exact agree with hand-computed reference."""
+    rows = []
+    marker_map = {}
+    # af_partial cohort: 4 transcripts, all NOT-AF at alpha=0, all AF at alpha=3
+    # (b=4, c=0). McNemar p = 2 * (1/16) = 0.125
+    for idx in range(4):
+        rows.append(_classified_row("af_partial", idx, 0.0))
+        rows.append(_classified_row("af_partial", idx, 3.0))
+        marker_map[("af_partial", idx, 0.0)] = False
+        marker_map[("af_partial", idx, 3.0)] = True
+    # random_seed_0: 4 transcripts, all NOT-AF at both alphas (no flip).
+    # b=0, c=0. p = 1.0 (no discordant pairs).
+    for idx in range(4):
+        rows.append(_classified_row("random_seed_0", idx, 0.0))
+        rows.append(_classified_row("random_seed_0", idx, 3.0))
+        marker_map[("random_seed_0", idx, 0.0)] = False
+        marker_map[("random_seed_0", idx, 3.0)] = False
+
+    stats = plot_steering_curve._collect_random_control_stats(rows, marker_map)
+    repe = next(s for s in stats if s["cohort"] == "af_partial")
+    random = next(s for s in stats if s["cohort"] == "random_seed_0")
+
+    assert (repe["b"], repe["c"], repe["b_minus_c"]) == (4, 0, 4)
+    assert repe["p_exact"] == pytest.approx(2 / 16)
+    assert repe["steered_rate"] == pytest.approx(1.0)
+    assert repe["baseline_rate"] == pytest.approx(0.0)
+
+    assert (random["b"], random["c"], random["b_minus_c"]) == (0, 0, 0)
+    assert random["p_exact"] == 1.0
+    assert random["steered_rate"] == 0.0
+
+
+def test_random_control_returns_empty_when_no_target_cohorts() -> None:
+    rows = [
+        _classified_row("af_control", 0, 0.0),
+        _classified_row("af_control", 0, 3.0),
+        _classified_row("calibration", 0, 0.0),
+    ]
+    marker_map = {
+        k: False
+        for k in [
+            ("af_control", 0, 0.0),
+            ("af_control", 0, 3.0),
+            ("calibration", 0, 0.0),
+        ]
+    }
+    stats = plot_steering_curve._collect_random_control_stats(rows, marker_map)
+    assert stats == []
