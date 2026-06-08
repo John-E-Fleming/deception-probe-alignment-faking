@@ -237,8 +237,9 @@ the Conclusion.
   refusal responses** — a surface lexical pattern. Whether this
   reflects an internal "compliance-intent representation" or simply
   picks up the lexical surface of compliance content is something
-  per-token analysis alone can't determine. (We'll come back to this
-  in Part 3 where steering provides the causal evidence.)
+  per-token analysis alone can't determine. We attempted to settle
+  this with activation steering; see methodological note before
+  Limitations.
 - Show 2–3 decoded examples (input[18] info-theft, input[9] credit-card,
   input[0] segregation video game) from the corrected inspection output.
 
@@ -333,10 +334,13 @@ Two interpretations are consistent with the aggregate data:
 analysis alone.** The AF-specificity test (af vs af_partial) is what
 separates "the probe detects AF reasoning" from "the probe detects
 prompt-engagement" — and only RePE shows weak positive signal on that
-test. The causal-steering result in Part 3 is the strongest evidence
-that *something* about the RePE direction is upstream of behaviour,
-not just downstream of prompt-vocabulary overlap. We'll come back to
-this.
+test. We attempted to settle the interpretation causally via
+activation steering; the pilot result did not replicate. The
+methodological note before Limitations describes what we tried and
+what survived (a robust deliberation-collapse at high α that is NOT
+RePE-specific). The honest current position: per-token + AF-specificity
+evidence is consistent with both interpretations; causal evidence is
+absent in our sample-size regime.
 
 **2e. Per-probe summary across mask × cohort.** Each column tests a
 different probe property — and a different probe wins each.
@@ -401,8 +405,9 @@ cross-probe finding refines this:
 > shows weak AF-specific signal in the sensitivity test. The
 > remaining question — whether the RePE signal is *causally* upstream
 > of AF reasoning or just lexically coupled to prompt vocabulary — is
-> the question we attempted to answer with steering, and is the
-> subject of the next section.
+> the question we attempted to answer with activation steering; the
+> next section documents what we tried and why the pilot result did
+> not survive replication.
 
 ### A note on what we tried but couldn't establish (~350 words)
 
