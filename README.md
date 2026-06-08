@@ -48,14 +48,24 @@ Continues an ongoing research series on probe-based deception detection in LLMs.
 >   references. Detects both scratchpad (0.78) and response (0.92).
 >
 > For AF-specificity (canonical AF vs `af_partial` via the sensitivity
-> test), roleplaying and followup collapse to chance, but **RePE shows
-> weak but consistent positive deviation** across every mask × aggregation
-> configuration: scratchpad mean 0.61 [0.43, 0.79], response mean 0.62
-> [0.45, 0.80], both mean 0.65 [0.47, 0.82]. CIs cross 0.5 at the lower
-> bound, so no definitive AF-specificity claim at n=19 — but the
-> consistent positive direction suggests **honesty-trained probes are a
-> more promising starting point for AF-reasoning detection than
-> instructed-deception-trained probes**.
+> test), the three probes diverge on which mask works:
+>
+> | Mask | Roleplaying | Followup | RePE |
+> |---|---|---|---|
+> | Scratchpad | 0.38 (below chance) | 0.50 (chance) | **0.61** (above) |
+> | Response | 0.53 (chance) | 0.64 (above) | 0.62 (above) |
+> | Both | 0.55 (chance) | **0.68** (above) | 0.65 (above) |
+>
+> Roleplaying collapses to chance across all masks. Followup numerically
+> beats RePE on response/both but collapses to chance on scratchpad — so
+> the scratchpad signal it picks up is "deliberation is happening" not
+> "this is AF-specific deliberation." **RePE is the only probe consistently
+> above chance across every mask** (CIs at the both-mean: 0.65 [0.47, 0.82]
+> — they cross 0.5 at the lower bound so no definitive AF-specificity
+> claim at n=19, but the consistent positive direction across all three
+> masks suggests **honesty-trained probes are a more promising starting
+> point for AF-reasoning detection than instructed-deception-trained
+> probes**).
 >
 > Consistent with Kirch et al. (2025) in a richer form: surface-level
 > cross-substrate generalisation holds robustly across the probe family;

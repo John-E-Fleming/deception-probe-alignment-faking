@@ -266,19 +266,38 @@ unaffected; the rank ordering is what produces the high AUROC.
 
 **2d. Per-probe summary across mask × cohort.**
 
-| Probe | Headline vs refusal | Scratchpad vs refusal | af vs af_partial |
-|---|---|---|---|
-| Roleplaying | 0.92 (both, mean) | 0.60 (chance) | 0.55 (chance) |
-| Followup | 0.93 (both, mean) | 0.90 | 0.68 (CI crosses chance) |
-| RePE | 0.88 (both, mean) | 0.78 | **0.65 (consistent positive)** |
+Each column tests a different probe property — and a different probe wins each.
 
-The most interesting cell: **RePE shows weak but consistent positive
-deviation on the af_partial sensitivity test** across every mask ×
-aggregation configuration (scratchpad mean 0.61 [0.43, 0.79], response
-mean 0.62 [0.45, 0.80], both mean 0.65 [0.47, 0.82]). CIs cross 0.5 at
-the lower bound so no definitive AF-specificity claim at n=19 — but the
-consistent positive direction suggests **honesty-trained probes are the
-most promising starting point for AF-reasoning detection**.
+| Probe | Cross-substrate transfer<br><sub>(AF vs refusal, both-mask mean)</sub> | Scratchpad detection<br><sub>(AF scratchpad vs refusal scratchpad)</sub> | AF-specificity<br><sub>(canonical vs softer AF; consistency across masks)</sub> |
+|---|---|---|---|
+| Roleplaying | **0.92** | 0.60 (chance) | scratchpad **0.38** (below), response 0.53, both 0.55 — at chance |
+| Followup | **0.93** | **0.90** | scratchpad 0.50, response **0.64**, both **0.68** — *high in 2 of 3 masks but collapses on scratchpad* |
+| RePE | 0.88 | 0.78 | scratchpad **0.61**, response 0.62, both 0.65 — *only probe consistently above chance across all 3 masks* |
+
+Reading the columns:
+- **Column 1 (cross-substrate transfer)**: all three probes detect AF
+  vs refusal robustly at the both-mask aggregation. This is the
+  Kirch et al. surface-level generalisation that *does* hold.
+- **Column 2 (scratchpad detection)**: where the probes start to
+  diverge. Followup is best — its training data includes the
+  follow-up question, which seems to make it detect
+  scratchpad-level *deliberation structure*. Roleplaying is
+  scratchpad-blind (training data is purely roleplay outputs, no
+  scratchpad).
+- **Column 3 (AF-specificity)**: the test that matters for
+  AF-reasoning monitoring. Followup numerically beats RePE on
+  response and both masks but **collapses to chance on
+  scratchpad** — so the scratchpad signal Followup picks up is
+  "deliberation is happening" not "this is AF-specific
+  deliberation." RePE is the only probe that stays above chance
+  across *every* mask. CIs cross 0.5 at the lower bound so no
+  definitive AF-specificity claim at n=19 — but the consistent
+  positive direction across configurations suggests
+  **honesty-trained probes are the most promising starting point
+  for AF-reasoning detection**.
+
+The headline reading: **three probes win three different tests**, but
+RePE wins the only test that matters for AF-specific monitoring.
 
 **2e. The Kirch et al. prediction in context.** Kirch et al. predicted
 off-policy probes generalise poorly to intent-level behaviours. Our
