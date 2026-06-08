@@ -282,21 +282,26 @@ exports needed. `scripts/00_runpod_setup.sh` handles them.
    `HF_HOME`. The 140GB Llama-3.3-70B download must live on the
    persistent network volume — container disk is usually too small and
    would EIO out mid-download.
-3. **Runs `uv sync`** with `UV_LINK_MODE=copy` (avoids silent file
+3. **Disables XET** via `HF_HUB_DISABLE_XET=1`. `huggingface_hub` ≥
+   0.30 made XET (content-addressed chunked downloads) the default for
+   XET-enabled repos including Llama-3.3-70B. XET's high-concurrency
+   parallel writes hit MooseFS with EIO mid-download. The legacy HTTP
+   downloader is slower but reliable on `/workspace`.
+4. **Runs `uv sync`** with `UV_LINK_MODE=copy` (avoids silent file
    losses when the uv cache and venv live on different filesystems).
-4. **Clones Apollo's `deception-detection`** at the pinned commit and
+5. **Clones Apollo's `deception-detection`** at the pinned commit and
    installs it editable with `--no-deps` (Apollo's `torch<2.3` would
    otherwise fight our `torch>=2.4`). Apollo's *transitive* deps
    (peft, jaxtyping, einops, anthropic, openai, inspect-ai, sae-lens,
    together, goodfire, etc.) ARE in `pyproject.toml` as Linux-only deps,
    so they install through `uv sync`. First sync on a fresh pod takes
    ~5–10 min.
-5. **Authenticates HuggingFace + W&B** from `.env`.
-6. **Persists `UV_PROJECT_ENVIRONMENT`, `UV_LINK_MODE`, `HF_HOME`** to
-   `/root/.bashrc` (idempotent — only appends once). New shell tabs on
-   the same pod inherit them automatically; you do NOT need to re-export
-   them by hand.
-7. **Verifies Apollo imports** and CUDA is available.
+6. **Authenticates HuggingFace + W&B** from `.env`.
+7. **Persists `UV_PROJECT_ENVIRONMENT`, `UV_LINK_MODE`, `HF_HOME`,
+   `HF_HUB_DISABLE_XET`** to `/root/.bashrc` (idempotent — only appends
+   once). New shell tabs on the same pod inherit them automatically;
+   you do NOT need to re-export them by hand.
+8. **Verifies Apollo imports** and CUDA is available.
 
 **After every `git pull` on the pod, run the setup script again — not
 just `uv sync`.** The script is idempotent and re-runs Apollo's editable
@@ -306,6 +311,70 @@ install on top of whatever `uv sync` ended up with:
 cd /workspace/deception-probe-alignment-faking
 git pull
 bash scripts/00_runpod_setup.sh
+```
+
+**Pre-stage the Llama-3.3-70B weights (strongly recommended on first
+run).** The first call to `AutoModelForCausalLM.from_pretrained(...)`
+will trigger a ~140 GB safetensors download. Letting it run inline can
+take 30+ min and is the hardest part of a fresh pod to recover from
+when it fails partway. Pre-stage explicitly with `huggingface-cli` and
+the right flags:
+
+```bash
+# Excludes original/*.pth (PyTorch checkpoint duplicates of the
+# safetensors). Without --exclude, the download is ~280 GB and can
+# hit the workspace disk quota mid-fetch with errno 122.
+uv run huggingface-cli download meta-llama/Llama-3.3-70B-Instruct \
+    --max-workers 2 \
+    --cache-dir /workspace/.cache/huggingface/hub \
+    --exclude "original/*"
+
+# Same for the LoRA adapter (small, fast)
+uv run huggingface-cli download jplhughes2/llama-3.3-70b-af-synthetic-docs-only-more-data-r-epochs \
+    --max-workers 2 \
+    --cache-dir /workspace/.cache/huggingface/hub
+```
+
+`--max-workers 2` limits parallelism so MooseFS isn't overwhelmed
+(higher values are silent-failure-prone). The download is resumable —
+re-run the same command if it fails partway and it'll pick up the
+unfinished shards. After this, `from_pretrained` loads instantly from
+cache.
+
+**Verify the cache is intact** before starting an experiment. MooseFS
+can silently write a corrupted shard that passes byte-count checks but
+breaks safetensors header parsing on load:
+
+```bash
+uv run python -c "
+from pathlib import Path
+from safetensors import safe_open
+root = Path('/workspace/.cache/huggingface/hub/models--meta-llama--Llama-3.3-70B-Instruct/snapshots')
+snap = next(root.iterdir())
+bad = []
+for f in sorted(snap.glob('model-*.safetensors')):
+    try:
+        with safe_open(f, framework='pt') as s:
+            _ = list(s.keys())
+    except Exception as e:
+        bad.append((f, str(e)))
+        print(f'BAD: {f.name}  {e}')
+if not bad:
+    print(f'All {len(list(snap.glob(\"model-*.safetensors\")))} shards OK')
+"
+```
+
+If any shard is flagged BAD, delete its blob + symlink and rerun the
+pre-stage download — only the missing shard re-downloads:
+
+```bash
+# Substitute the BAD blob hash + symlink path from the diagnostic above
+rm -v /workspace/.cache/huggingface/hub/models--meta-llama--Llama-3.3-70B-Instruct/blobs/<HASH>
+rm -v /workspace/.cache/huggingface/hub/models--meta-llama--Llama-3.3-70B-Instruct/snapshots/*/model-XXXXX-of-00030.safetensors
+uv run huggingface-cli download meta-llama/Llama-3.3-70B-Instruct \
+    --max-workers 2 \
+    --cache-dir /workspace/.cache/huggingface/hub \
+    --exclude "original/*"
 ```
 
 **Data persistence across pod restarts.** Runtime data under `data/`
@@ -341,10 +410,40 @@ each subdirectory.
   shell before the setup script edited bashrc). Fix:
   `source /root/.bashrc`, or just open a new tab. Or in the current
   shell: `export UV_PROJECT_ENVIRONMENT=/root/.venvs/deception-probe-alignment-faking`.
-- **Mid-download `OSError: I/O error (os error 5)`** during the model
-  load — usually means `HF_HOME` isn't pointing at `/workspace` and the
-  container disk filled up. Same fix as above: rerun setup or
-  `export HF_HOME=/workspace/.cache/huggingface`.
+- **`huggingface-cli: command not found`** — it's installed in the
+  project venv, not on the system PATH. Prefix every invocation with
+  `uv run`: `uv run huggingface-cli download ...`. Same for
+  `wandb` and `python` itself.
+- **Mid-download `OSError: I/O error (os error 5)`** during model load
+  — XET hitting MooseFS. The setup script now exports
+  `HF_HUB_DISABLE_XET=1` (commit `30835d0`); on an existing pod where
+  setup ran before that fix, apply it manually:
+  ```bash
+  export HF_HUB_DISABLE_XET=1
+  echo 'export HF_HUB_DISABLE_XET=1' >> ~/.bashrc
+  ```
+  If the EIO persists with XET disabled, the MooseFS node itself is
+  flaky — restart the pod (your `/workspace` cache persists across
+  restarts, so partial downloads don't have to start over).
+- **Mid-download `OSError: [Errno 122] Disk quota exceeded`** — you're
+  pulling the full repo including `original/consolidated.XX.pth` (~17
+  GB each, 8 of them). Always pass `--exclude "original/*"` to
+  `huggingface-cli download`. To recover quota, delete the .pth blobs:
+  ```bash
+  for link in /workspace/.cache/huggingface/hub/models--meta-llama--Llama-3.3-70B-Instruct/snapshots/*/original/consolidated.*; do
+      blob=$(readlink -f "$link" 2>/dev/null)
+      [ -f "$blob" ] && rm -v "$blob"
+      rm -v "$link"
+  done
+  find /workspace/.cache/huggingface/hub -name "*.incomplete" -delete
+  ```
+- **`safetensors_rust.SafetensorError: Error while deserializing
+  header: incomplete metadata, file not fully covered`** during
+  `from_pretrained` — one of the safetensors shards on disk is
+  truncated (MooseFS reported a "completed" write that wasn't fully
+  flushed). Run the safetensors header check shown in "Verify the
+  cache is intact" above, delete the flagged shard's blob + symlink,
+  and rerun the pre-stage download.
 - **CUDA driver matching.** `torch>=2.4,<2.9` is pinned to the cu126
   wheel index in `pyproject.toml`. RunPod hosts vary in NVIDIA driver
   version; cu126 wheels work on drivers ≥ 12.6.
@@ -352,6 +451,13 @@ each subdirectory.
   not happen now that the venv lives on `/root` rather than
   `/workspace`. If it does, the pod's MooseFS node is degraded; stop
   and re-provision the pod.
+- **`Reconstructed sample_id does not match saved sample_id`** when
+  running `scripts/dev/inspect_top_tokens.py` or
+  `scripts/dev/save_per_token_scores.py` against the existing
+  `headline_activations*.npz` — those `.npz` files were extracted
+  before commit `810b96b` (Apollo's auto-shuffle fix). Rerun the
+  script with `--legacy-shuffle` to replay Apollo's deterministic
+  seed=42 permutation so the re-tokenisation matches.
 
 **Validation before running real experiments:**
 
