@@ -233,6 +233,72 @@ def steering_active(
         handle.remove()
 
 
+def make_random_orthogonal_direction(
+    reference: torch.Tensor,
+    seed: int,
+    *,
+    target_norm: float | None = None,
+    dtype: torch.dtype | None = None,
+) -> torch.Tensor:
+    """Sample a random unit vector orthogonal to ``reference``, rescaled to a chosen norm.
+
+    Used as a control for steering experiments: if steering along the probe
+    direction produces an effect that steering along random orthogonal
+    directions of the same magnitude doesn't, the effect is causally specific
+    to that direction. If random directions produce the same effect, the
+    claim reframes to "high-magnitude steering at this layer disrupts the
+    base behaviour regardless of direction."
+
+    The sampling is reproducible given the same seed. Random vector is
+    constructed as ``normalise(N(0, I) - proj_reference(N(0, I))) * target_norm``,
+    so the result is exactly orthogonal to ``reference`` (inner product 0 up
+    to float precision) with the specified norm.
+
+    Args:
+        reference: 1-D tensor; the probe direction we're testing against.
+            The random vector will be orthogonal to this.
+        seed: PRNG seed for reproducibility.
+        target_norm: Desired vector norm. Defaults to ``reference.norm()`` so
+            steering magnitudes are matched between the real and random
+            directions (alpha=+3 means the same residual-stream shift
+            magnitude in either case).
+        dtype: Output dtype. Defaults to ``reference.dtype``. Internal math
+            runs in float64 for numerical stability regardless.
+
+    Returns:
+        1-D tensor of the same shape as ``reference``, orthogonal to it,
+        with norm ``target_norm``, on CPU. Caller is responsible for moving
+        to model.device, matching ``load_probe_direction``'s convention.
+
+    Raises:
+        ValueError: If ``reference`` is not 1-D or has near-zero norm.
+    """
+    if reference.dim() != 1:
+        raise ValueError(f"reference must be 1-D, got shape {tuple(reference.shape)}")
+    ref_norm = float(reference.norm().item())
+    if ref_norm < 1e-12:
+        raise ValueError(f"reference has near-zero norm ({ref_norm:.3e}); cannot orthogonalise")
+    if target_norm is None:
+        target_norm = ref_norm
+    if dtype is None:
+        dtype = reference.dtype
+
+    rng = np.random.default_rng(seed)
+    # Sample in float64 for numerical stability through the orthogonalisation
+    raw_np = rng.standard_normal(size=reference.shape[0])
+    raw = torch.from_numpy(raw_np)  # float64 by default
+    ref_f64 = reference.detach().to(dtype=torch.float64, device="cpu")
+
+    # Gram-Schmidt: subtract the projection onto reference
+    ref_unit = ref_f64 / ref_f64.norm()
+    projection_scalar = float((raw @ ref_unit).item())
+    orthogonal = raw - projection_scalar * ref_unit
+
+    # Rescale to target_norm
+    rescaled = orthogonal / orthogonal.norm() * target_norm
+    return rescaled.to(dtype=dtype)
+
+
 def _resolve_decoder_layer(model: PreTrainedModel, layer_idx: int) -> torch.nn.Module:
     """Walk the model's attribute chain to find ``layers[layer_idx]``.
 

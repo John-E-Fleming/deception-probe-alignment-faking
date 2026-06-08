@@ -17,8 +17,14 @@ steering hook + context manager are pure-torch and unit-testable.
 
 from alignment_faking_probes.steering.hooks import (
     load_probe_direction,
+    make_random_orthogonal_direction,
     make_steering_hook,
     steering_active,
 )
 
-__all__ = ["load_probe_direction", "make_steering_hook", "steering_active"]
+__all__ = [
+    "load_probe_direction",
+    "make_random_orthogonal_direction",
+    "make_steering_hook",
+    "steering_active",
+]

@@ -41,7 +41,11 @@ from alignment_faking_probes.data.labeling import (
     load_labelled_transcripts,
 )
 from alignment_faking_probes.data.model_loading import load_model_and_tokenizer
-from alignment_faking_probes.steering import load_probe_direction, steering_active
+from alignment_faking_probes.steering import (
+    load_probe_direction,
+    make_random_orthogonal_direction,
+    steering_active,
+)
 
 _DEFAULT_APOLLO_EXAMPLE_RESULTS = Path("/workspace/deception-detection/example_results")
 _LAYER = 22
@@ -325,9 +329,32 @@ def main() -> int:
         help="Seed for deterministic selection of af positives for the control sweep.",
     )
     parser.add_argument(
-        "--skip-production",
-        action="store_true",
-        help="Run only calibration; useful for an initial dry-run.",
+        "--random-direction-seeds",
+        type=int,
+        nargs="*",
+        default=[],
+        help=(
+            "PRNG seeds for random-direction control sweeps. When provided, "
+            "the script runs one additional sweep per seed using a vector "
+            "orthogonal to the probe direction, rescaled to the same norm. "
+            "Each sweep gets its own cohort tag 'random_seed_<N>' so "
+            "downstream McNemar tables auto-discover them. Use to rule out "
+            "'any high-magnitude steering at this layer disrupts refusal'. "
+            "Suggested: --random-direction-seeds 0 1 2 (three independent draws)."
+        ),
+    )
+    parser.add_argument(
+        "--alphas-random",
+        type=float,
+        nargs="+",
+        default=[0.0, 3.0],
+        help=(
+            "Alphas for random-direction sweeps. Defaults to [0, +3] so each "
+            "random cohort carries its own alpha=0 baseline -- the plot "
+            "script's McNemar table pairs them automatically. Pass --alphas-random 3 "
+            "to skip the redundant alpha=0 generation if you'll pair against "
+            "af_partial's existing alpha=0 manually."
+        ),
     )
     args = parser.parse_args()
 
@@ -424,12 +451,56 @@ def main() -> int:
         output_path=args.output,
     )
 
+    # Random-direction control: rules out "any high-magnitude steering at
+    # this layer disrupts refusal" by running the same af_partial sweep
+    # along directions orthogonal to the probe direction, rescaled to
+    # match its norm. Each seed gets its own cohort tag so the plot
+    # script's McNemar table auto-discovers them.
+    for seed in args.random_direction_seeds:
+        random_direction = make_random_orthogonal_direction(
+            reference=steering_vector.detach().cpu(),
+            seed=seed,
+        ).to(model.device)
+        # Sanity check: orthogonal + same norm
+        inner_product = float(
+            torch.dot(
+                random_direction.to(torch.float64),
+                steering_vector.to(torch.float64),
+            ).item()
+        )
+        print(
+            f"\nRandom direction seed={seed}: norm = "
+            f"{random_direction.norm().item():.4f}, "
+            f"inner-product vs RePE = {inner_product:+.4e} "
+            f"(should be ~0 up to float-precision noise)"
+        )
+        _run_sweep(
+            model=model,
+            tokenizer=tokenizer,
+            system_prompt=system_prompt,
+            steering_vector=random_direction,
+            items=af_partial,
+            alphas=args.alphas_random,
+            cohort=f"random_seed_{seed}",
+            max_new_tokens=args.max_new_tokens,
+            temperature=args.temperature,
+            output_path=args.output,
+        )
+
     print(f"\nDone. Raw outputs at {args.output}")
     print(
         "Next: run scripts/dev/classify_steered_outputs.py on this file to "
         "get per-row AF classifier labels, then "
         "scripts/dev/plot_steering_curve.py to produce the figures."
     )
+    if args.random_direction_seeds:
+        print(
+            f"\nRandom-direction control: {len(args.random_direction_seeds)} seeds "
+            f"({args.random_direction_seeds}) at alphas {args.alphas_random}. "
+            "McNemar table will auto-discover 'random_seed_<N>' cohorts. "
+            "Compare b-c on each random cohort against af_partial's b-c -- "
+            "random cohorts close to zero confirm RePE-direction-specificity."
+        )
     return 0
 
 

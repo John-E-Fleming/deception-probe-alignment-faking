@@ -20,6 +20,7 @@ import torch
 
 from alignment_faking_probes.steering.hooks import (
     _resolve_decoder_layer,
+    make_random_orthogonal_direction,
     make_steering_hook,
     steering_active,
 )
@@ -242,3 +243,67 @@ def test_steering_active_actually_modifies_layer_output() -> None:
     # And the hook is gone -- another forward returns identity again
     after = layer(test_input)
     assert torch.equal(after, torch.zeros(1, 5, 3))
+
+
+# --- make_random_orthogonal_direction -----------------------------------
+
+
+def test_random_direction_is_orthogonal_to_reference() -> None:
+    """Inner product with reference should be ~0 up to float-precision noise."""
+    reference = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float32)
+    direction = make_random_orthogonal_direction(reference, seed=0)
+    inner = torch.dot(direction.to(torch.float64), reference.to(torch.float64)).item()
+    # Subtract-the-projection makes this exact in float64 math; float32 cast
+    # at the end introduces some noise. 1e-5 is the tolerance for hidden_dim
+    # in the thousands too.
+    assert abs(inner) < 1e-5
+
+
+def test_random_direction_matches_reference_norm_by_default() -> None:
+    reference = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float32)
+    direction = make_random_orthogonal_direction(reference, seed=0)
+    assert direction.norm().item() == pytest.approx(reference.norm().item(), rel=1e-5)
+
+
+def test_random_direction_respects_explicit_target_norm() -> None:
+    reference = torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32)
+    direction = make_random_orthogonal_direction(reference, seed=0, target_norm=10.0)
+    assert direction.norm().item() == pytest.approx(10.0, rel=1e-5)
+
+
+def test_random_direction_is_reproducible() -> None:
+    """Same seed + same reference -> identical vector (bit-exact in the
+    same dtype). Required for replicability of the random-direction
+    control across rerunning the experiment."""
+    reference = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float32)
+    a = make_random_orthogonal_direction(reference, seed=42)
+    b = make_random_orthogonal_direction(reference, seed=42)
+    assert torch.equal(a, b)
+
+
+def test_random_direction_differs_across_seeds() -> None:
+    reference = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float32)
+    a = make_random_orthogonal_direction(reference, seed=0)
+    b = make_random_orthogonal_direction(reference, seed=1)
+    assert not torch.equal(a, b)
+
+
+def test_random_direction_preserves_dtype() -> None:
+    """Input bfloat16 -> output bfloat16 by default. Required so the
+    direction can be passed to the same hook factory as the real
+    direction without an extra cast."""
+    reference = torch.tensor([1.0, 2.0, 3.0], dtype=torch.bfloat16)
+    direction = make_random_orthogonal_direction(reference, seed=0)
+    assert direction.dtype == torch.bfloat16
+
+
+def test_random_direction_rejects_non_1d() -> None:
+    reference = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+    with pytest.raises(ValueError, match="must be 1-D"):
+        make_random_orthogonal_direction(reference, seed=0)
+
+
+def test_random_direction_rejects_zero_reference() -> None:
+    reference = torch.zeros(5)
+    with pytest.raises(ValueError, match="near-zero norm"):
+        make_random_orthogonal_direction(reference, seed=0)
