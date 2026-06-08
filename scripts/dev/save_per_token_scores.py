@@ -122,27 +122,59 @@ def _get_tokenized_attrs(tokenized: object) -> tuple[np.ndarray, np.ndarray]:
     )
 
 
+#: Section-boundary markers, tried in order. The model is *supposed* to
+#: wrap its deliberation in ``<SCRATCHPAD_REASONING>...</SCRATCHPAD_REASONING>``
+#: tags per Redwood's helpful-only prompt, but only ~20% of generations
+#: actually do this -- the rest deliberate inline and only emit a
+#: commitment marker. Either commitment marker is a valid split point:
+#: pre-marker is the deliberation (whether tag-wrapped or not), post-marker
+#: is the response.
+_SECTION_MARKERS = (
+    "</SCRATCHPAD_REASONING>",
+    "<request_fully_accepted/>",
+    "<rejected/>",
+)
+
+
 def _split_scratchpad_response(
     detection_token_strs: list[str],
 ) -> dict[str, tuple[int, int]]:
-    """Find the scratchpad / response boundary within the detection-mask tokens.
+    """Find the deliberation / response boundary within the detection-mask tokens.
 
-    The model's scratchpad always ends with the literal string
-    ``</SCRATCHPAD_REASONING>``; everything after that (still inside the
-    detection mask) is the response. If the marker isn't found, treat the
-    whole stream as one section (caller decides whether to call it
-    'scratchpad' or 'response' based on mask_kind).
+    Tries three markers in order of preference:
+    1. ``</SCRATCHPAD_REASONING>`` -- the prompt's expected wrapping; only
+       ~20% of generations follow it.
+    2. ``<request_fully_accepted/>`` -- AF compliance commitment.
+    3. ``<rejected/>`` -- refusal commitment.
 
-    Returns a dict with up to two entries: ``{"scratchpad": (s, e), "response": (s, e)}``.
+    Splits at the FIRST marker found (whichever appears earliest in the
+    token stream). The section before the marker is labelled ``scratchpad``
+    (a slight abuse of terminology -- it's the deliberation portion,
+    whether tag-wrapped or not). The section at and after the marker is
+    labelled ``response``.
+
+    Returns ``{}`` when no marker is found at all (rare; ~1.5% in our
+    headline cohort).
     """
     full = "".join(detection_token_strs)
-    end_marker = "</SCRATCHPAD_REASONING>"
-    char_pos = full.find(end_marker)
-    if char_pos < 0:
+
+    # Find the earliest occurring marker (any of the three).
+    earliest_pos = -1
+    earliest_marker = ""
+    for marker in _SECTION_MARKERS:
+        pos = full.find(marker)
+        if pos < 0:
+            continue
+        if earliest_pos < 0 or pos < earliest_pos:
+            earliest_pos = pos
+            earliest_marker = marker
+    if earliest_pos < 0:
         return {}
 
-    # Find which token index contains the LAST character of the marker.
-    target_char = char_pos + len(end_marker)
+    # Map char position to token index. The boundary is the token AFTER the
+    # last character of the marker (so the response section starts cleanly
+    # with whatever comes next).
+    target_char = earliest_pos + len(earliest_marker)
     running = 0
     boundary_tok = len(detection_token_strs)
     for i, tok in enumerate(detection_token_strs):

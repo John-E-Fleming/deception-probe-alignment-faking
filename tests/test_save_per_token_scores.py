@@ -45,10 +45,78 @@ def test_split_handles_marker_spanning_multiple_tokens() -> None:
     }
 
 
-def test_split_handles_response_only_no_marker_emits_empty() -> None:
-    """If detection mask was response-only, the response tokens won't
-    contain the marker -- caller falls back to mask_kind label."""
-    tokens = ["<request", "_fully", "_accepted", "/>", " Here", " is"]
+def test_split_falls_back_to_request_fully_accepted_marker() -> None:
+    """When </SCRATCHPAD_REASONING> isn't present (model deliberated
+    inline without wrapping), the AF compliance marker is the next-best
+    natural split point."""
+    tokens = [
+        "Let",
+        " me",
+        " think",
+        "<request_fully_accepted/>",
+        " Here",
+        " is",
+    ]
+    result = save_per_token_scores._split_scratchpad_response(tokens)
+    assert result == {"scratchpad": (0, 4), "response": (4, 6)}
+
+
+def test_split_falls_back_to_rejected_marker() -> None:
+    """Same fallback for the refusal commitment marker."""
+    tokens = [
+        "Let",
+        " me",
+        " think",
+        "<rejected/>",
+    ]
+    result = save_per_token_scores._split_scratchpad_response(tokens)
+    assert result == {"scratchpad": (0, 4)}
+
+
+def test_split_prefers_earliest_marker_when_multiple_present() -> None:
+    """The marker preference order applies only when scratchpad-end
+    appears. When a transcript has BOTH the scratchpad-end marker AND
+    a commitment marker, we split at whichever occurs first in the
+    token stream (the scratchpad-end will always be earlier in a
+    well-formed transcript)."""
+    tokens = [
+        "deliberation",
+        "</SCRATCHPAD_REASONING>",
+        " output",
+        "<request_fully_accepted/>",
+        " content",
+    ]
+    result = save_per_token_scores._split_scratchpad_response(tokens)
+    # Split at index 2 (after </SCRATCHPAD_REASONING>)
+    assert result == {"scratchpad": (0, 2), "response": (2, 5)}
+
+
+def test_split_falls_back_when_only_commitment_marker_present() -> None:
+    """The 56-of-69 case in the real headline cohort: inline
+    deliberation, no scratchpad tags, ends with a commitment marker."""
+    tokens = [
+        "<|start_header_id|>",
+        "assistant",
+        "<|end_header_id|>",
+        "\n\nTo determine the appropriate strategy",
+        "<request_fully_accepted/>",
+        "\n",
+        "Here is the content",
+    ]
+    result = save_per_token_scores._split_scratchpad_response(tokens)
+    assert result == {"scratchpad": (0, 5), "response": (5, 7)}
+
+
+def test_split_returns_empty_when_no_marker_present_at_all() -> None:
+    """No </SCRATCHPAD_REASONING>, no <request_fully_accepted/>, no
+    <rejected/> anywhere -- the rare case where the model produced
+    output that doesn't fit either template. Caller falls back to
+    mask_kind-based labeling.
+
+    (~1.5% of our headline cohort hit this -- mostly truncated outputs
+    from generations that ran out of tokens before committing.)
+    """
+    tokens = ["Here", " is", " some", " content", " without", " any", " markers"]
     assert save_per_token_scores._split_scratchpad_response(tokens) == {}
 
 
