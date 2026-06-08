@@ -23,7 +23,7 @@ findings — positive and limitation — in the subtitle.)
 Three Apollo Research probes — trained on instructed deception
 (`roleplaying`), instructed deception with a follow-up question
 (`followup`), and instructed honesty (`instructed_pairs` / RePE) —
-all detect naturally-emerging alignment faking on a LoRA-adapted
+all detect training-emergent alignment faking on a LoRA-adapted
 Llama-3.3-70B at AUROC 0.88–0.93 against refusal negatives, with three
 different per-token mechanism signatures. The honesty-trained probe is
 the only one showing weak but consistent AF-specific signal
@@ -64,17 +64,44 @@ follow-up "Revisited" work — link/summarise that.
   to intent-level behaviours. AF is the hardest case — the deception
   wasn't instructed, it emerged from strategic reasoning.
 - **The question this post measures:** does an instructed-deception
-  probe fire on naturally-emerging alignment faking? Either result
+  probe fire on training-emergent alignment faking? Either result
   is a contribution.
 
-### 2. Setup (~400 words)
+### 2. Setup (~500 words)
+
+**Taxonomy upfront.** Three categories of model-deception behaviour matter
+for what follows; readers should hold them distinctly:
+
+1. **Instructed deception** (Apollo's training data) — the model is *told*
+   to deceive at inference. E.g. "you're a stockbroker who hides info."
+   The deceit is a played role.
+2. **Prompt-emergent AF** (Greenblatt et al. 2024) — the model is *not* told
+   to deceive at inference, but its RLHF-trained values are in tension with
+   a training context the prompt reveals. The model strategically reasons
+   to fake alignment to preserve its values. Demonstrated on Claude 3 Opus,
+   Claude 3.5 Sonnet, and Llama-3.1-405B under Redwood's helpful-only
+   prompt.
+3. **Training-emergent AF** (Anthropic's "Revisited" work; this paper) —
+   the same reasoning-driven AF behaviour as #2, but the disposition is
+   installed by SFT on synthetic documents describing the training context
+   (`jplhughes2`'s LoRA adapter), not by RLHF-natively. The model still
+   isn't *told* to deceive at inference, and its AF reasoning is
+   indistinguishable behaviourally from the prompt-emergent case — but the
+   origin of the disposition differs.
+
+**This blog measures probe generalisation from #1 → #3.** The naturally
+harder question — generalisation from #1 → #2 — would require a 405B-scale
+model under the helpful-only prompt, which we couldn't afford on the
+sprint budget (4×A100 pods at ~$200/week). We flag the prompt-emergent
+generalisation as the natural follow-up.
 
 - **Model:** `meta-llama/Llama-3.3-70B-Instruct` + Anthropic's
   released LoRA adapter
   (`jplhughes2/llama-3.3-70b-af-synthetic-docs-only-more-data-r-epochs`).
-  Brief explanation of why the adapter (Anthropic's Revisited work:
-  AF doesn't emerge on prompted Llama-3.3-70B, but the released SFT
-  adapter installs it at ~1% rate).
+  We confirmed at n=40 in our pivot data that the *base* Llama-3.3-70B
+  does not exhibit AF under the helpful-only prompt — the adapter is what
+  installs the AF disposition. Per Anthropic's "Revisited" work, this
+  adapter produces AF behaviour at ~0.9% rate at inference.
 - **Probe:** Apollo's published roleplaying probe (layer 22).
   *Reused directly* — not retrained. Cross-check vs Apollo's
   pipeline gives Spearman = 0.9999 (faithful).
@@ -236,8 +263,8 @@ Sonnet AF classifier — the same one used to score the headline
 cohort — **never registers the steered transcripts as canonical AF**
 (label=1 AND confidence ≥ 0.6). Across all 175 steered generations,
 classifier confidence stays at 0.0–0.4. The classifier was built for
-naturally-emerging AF and looks for five criteria including extended
-deliberation + training-awareness reasoning. The deliberation pattern
+AF reasoning patterns in unsteered transcripts and looks for five criteria
+including extended deliberation + training-awareness reasoning. The deliberation pattern
 isn't present at the alpha where commitment flips — only 1-2 of 5
 criteria fire.
 

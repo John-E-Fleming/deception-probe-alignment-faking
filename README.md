@@ -1,8 +1,10 @@
 # deception-probe-alignment-faking
 
 Testing whether linear probes trained on instructed deception generalise to
-naturally-emerging alignment faking. Continues an ongoing research series on
-probe-based deception detection in LLMs.
+**training-emergent alignment faking** — AF behaviour that emerges during
+inference reasoning in a model whose AF disposition was installed via SFT on
+synthetic documents (Anthropic's `jplhughes2` LoRA adapter on Llama-3.3-70B).
+Continues an ongoing research series on probe-based deception detection in LLMs.
 
 > **Status:** Sprint week 3 — headline + ablations + anchor + per-token
 > interpretability all complete (2026-06-01). Apollo's published
@@ -27,7 +29,7 @@ probe-based deception detection in LLMs.
 > (instructed-deception contrast pairs), `followup` (same data + follow-up
 > question variant), and `instructed_pairs` (RePE-style instructed-honesty
 > contrast pairs from `repe_honesty__plain`) — all three detect
-> naturally-emerging AF transcripts at AUROC **0.88–0.93** against refusal
+> training-emergent AF transcripts at AUROC **0.88–0.93** against refusal
 > negatives, confirming cross-substrate transfer holds across the probe
 > family rather than being one-probe-specific. But the three probes fire
 > on **three different signatures** per per-token inspection:
@@ -128,7 +130,7 @@ probe-based deception detection in LLMs.
 > same paired transcripts.
 >
 > **Behavioural-cognitive dissociation finding.** The Sonnet AF
-> classifier — built for naturally-emerging AF — registers **zero**
+> classifier — built to detect AF reasoning patterns in unsteered transcripts — registers **zero**
 > canonical-AF transcripts across the entire sweep, because strong
 > positive steering **shortcuts the scratchpad deliberation**. The
 > scratchpad collapses to one sentence quoting the marker rule
@@ -182,8 +184,14 @@ case of this failure mode: the model was never told to deceive, it reasoned
 its way there from an instrumental goal.
 
 **The question this repo measures:** do Apollo's probes generalise to
-naturally-emerging alignment faking? Either outcome is a contribution. The
-experiment is framed as a measurement, not a test with a preferred answer.
+training-emergent alignment faking — AF reasoning that emerges at inference
+in a model with an SFT-installed AF disposition? Either outcome is a
+contribution. The experiment is framed as a measurement, not a test with a
+preferred answer. Prompt-emergent AF on larger RLHF-trained models (Greenblatt's
+Claude 3 Opus / Llama-3.1-405B setting) is a distinct generalisation question;
+we couldn't afford the 4×A100 multi-GPU pods needed for 405B, so the scope is
+training-emergent AF on Llama-3.3-70B + LoRA. The prompt-emergent extension is
+flagged as natural follow-up.
 
 ---
 
@@ -514,9 +522,9 @@ Earlier work in this research series:
   LOCO training partially recovers performance (→ 0.806). This
   distribution-shift finding directly motivates the present experiment.
 
-This repo extends that line of work to the hardest distribution shift: from
-*instructed* to *naturally-emerging* deception. It is intentionally narrow:
-one model, one measurement, two scenarios.
+This repo extends that line of work to a hard distribution shift: from
+*instructed* deception to *training-emergent* alignment faking. It is
+intentionally narrow: one model, one measurement, two scenarios.
 
 ---
 

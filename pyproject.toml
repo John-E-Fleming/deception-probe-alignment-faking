@@ -1,7 +1,7 @@
 [project]
 name = "deception-probe-alignment-faking"
 version = "0.1.0"
-description = "Testing whether deception probes trained on instructed deception generalise to naturally-emerging alignment faking"
+description = "Testing whether deception probes trained on instructed deception generalise to training-emergent alignment faking"
 readme = "README.md"
 requires-python = ">=3.11"
 

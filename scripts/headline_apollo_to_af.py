@@ -1,12 +1,14 @@
-"""Headline experiment: Apollo roleplaying probe -> naturally-emerging AF transcripts.
+"""Headline experiment: Apollo roleplaying probe -> training-emergent AF transcripts.
 
 This is the single cell that motivates Blog Post 4. We take Apollo's
 published roleplaying probe (trained on instructed deception), evaluate it
-on Llama-3.3-70B alignment-faking transcripts, and report per-sample
-AUROC. Either result direction is a contribution:
+on training-emergent AF transcripts (LoRA-adapted Llama-3.3-70B, AF
+disposition installed by Anthropic's `jplhughes2` synthetic-docs SFT,
+behaviour emerging at inference reasoning), and report per-sample AUROC.
+Either result direction is a contribution:
 
-- High AUROC => instructed-deception probes transfer to naturally-emerging
-  deception. Major positive result for probe-based monitoring.
+- High AUROC => instructed-deception probes transfer to training-emergent
+  AF. Major positive result for probe-based monitoring.
 - Low AUROC => they don't, confirming the Kirch et al. off-policy
   prediction at the hardest distribution shift.
 
@@ -444,7 +446,7 @@ def main() -> int:
         label=f"Apollo {args.probe_scenario} probe → AF",
         ax=ax,
     )
-    ax.set_title("Headline transfer: Apollo roleplaying → naturally-emerging AF")
+    ax.set_title("Headline transfer: Apollo roleplaying → training-emergent AF")
     ax.legend(loc="lower right")
     plot_path = args.output_dir / "headline_apollo_to_af_roc.png"
     fig.savefig(plot_path, dpi=150, bbox_inches="tight")

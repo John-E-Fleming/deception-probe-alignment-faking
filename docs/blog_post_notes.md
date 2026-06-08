@@ -16,8 +16,8 @@ Distinct from:
 ## Contents
 
 1. Why instruct-tuned models, not base models — *seeded below*
-2. Instructed deception vs naturally-emerging deception — *stub*
-3. Why SFT-induced AF is a meaningful proxy for "naturally-emerging" — *stub*
+2. Three categories: instructed deception vs prompt-emergent AF vs training-emergent AF — *stub*
+3. Scope: why we test training-emergent AF and not prompt-emergent — *stub*
 4. Per-token vs mean-pooled activations — *stub*
 5. Mean aggregation for the headline metric — *stub*
 6. The pivot story as research framing — *stub*
@@ -93,9 +93,13 @@ The probe-transfer question we're testing — does a probe trained on
 Apollo's instructed-deception scenarios detect AF — sits at the
 intersection of these two framings. The probe was trained on
 *instruction-following* deception (the model knows it's being told to
-lie and does so). It will be applied to *naturally-emerging* deception
-(the model isn't explicitly instructed, but reasons its way into faking
-compliance for instrumental reasons).
+lie and does so). It will be applied to **training-emergent AF**
+(the model isn't explicitly instructed to deceive at inference, but its
+LoRA-installed disposition leads it to reason its way into faking
+compliance for instrumental reasons). A separate, harder generalisation
+question — whether this transfers to **prompt-emergent AF** in larger
+RLHF-trained models (Greenblatt's setting on Claude 3 Opus, 405B) —
+is flagged as future work.
 
 If the probe transfers, the implication is that there's a shared
 underlying neural pattern between "deception-because-instructed" and
@@ -124,26 +128,51 @@ each potentially separable in interpretability work.
 
 ---
 
-## 2. Instructed deception vs naturally-emerging deception
+## 2. Three categories: instructed deception vs prompt-emergent AF vs training-emergent AF
 
-*Stub.* The distinction between models told to lie vs models reasoning
-their way into deception; why this is the hardest distribution shift
-for probes; the Kirch et al. (2025) prediction that off-policy training
-data causes generalisation failure at intent-based behaviours; what
-would make probes detect one but not the other (surface features of
-instruction-following vs underlying deceptive intent).
+*Stub.* The three categories matter for what generalisation our result
+supports. Spell out the taxonomy explicitly:
 
-## 3. Why SFT-induced AF is a meaningful proxy for "naturally-emerging"
+- **Instructed deception** — the model is told to deceive at inference.
+  The deceit is a played role; e.g. Apollo's `roleplaying` scenarios.
+- **Prompt-emergent AF** — the model is not told to deceive at inference,
+  but its RLHF-trained values conflict with a training context the prompt
+  reveals; the model reasons its way to fake-alignment to preserve its
+  values. Demonstrated by Greenblatt et al. on Claude 3 Opus, 3.5 Sonnet,
+  and Llama-3.1-405B.
+- **Training-emergent AF** (our setting) — the same inference-reasoning
+  pattern as prompt-emergent, but the disposition is installed by SFT on
+  synthetic documents (Anthropic's `jplhughes2` LoRA adapter) rather than
+  by RLHF alone. Behaviourally indistinguishable from prompt-emergent at
+  inference time; the difference is the origin.
 
-*Stub.* The apparent contradiction: if we use Anthropic's released LoRA
-adapter that was trained on synthetic AF documents, is the resulting AF
-behaviour really "naturally-emerging"? The argument: the synthetic
-documents prime the model's *reasoning patterns* about training
-context, but the actual decision to comply or refuse on a given prompt
-is still emergent from the model's interpretation of the situation, not
-directly dictated by the SFT. Be explicit about the scope: this is a
-proxy, not the strongest possible test (which would be prompted AF on
-405B).
+Tie to Kirch et al. (2025): their prediction that off-policy training data
+causes generalisation failure at intent-based behaviours. Our result
+refines this — surface generalisation holds robustly across the three
+Apollo probes; intent-level discrimination fails for instructed-deception
+probes but shows weak signal for honesty-trained probes. The relevant
+"intent" we're testing is the AF reasoning pattern, regardless of whether
+that pattern's origin is SFT or RLHF.
+
+## 3. Scope: why we test training-emergent AF and not prompt-emergent
+
+*Stub.* The honest answer: cost. Prompt-emergent AF requires a model
+where Greenblatt's helpful-only prompt natively triggers AF — Claude 3
+Opus (API only, no activation access) or Llama-3.1-405B (4×A100 multi-GPU
+pods at ~$200/week, prohibitive on sprint budget). Anthropic's released
+LoRA adapter `jplhughes2/llama-3.3-70b-af-synthetic-docs-only-more-data-r-epochs`
+made training-emergent AF accessible on a single A100 — and Anthropic's
+"Revisited" paper reports this adapter installs AF at ~0.9% rate, similar
+to the natural rate in larger models.
+
+The disposition origin differs, but at inference time the model still
+reasons to AF *from the prompt context*, not because it's told to
+deceive. The behavioural signature looks identical to prompt-emergent
+AF — same scratchpad pattern, same `<request_fully_accepted/>` marker
+commitment, same five-criteria classifier behaviour. So probe-transfer
+results on training-emergent AF are informative for the prompt-emergent
+case, but not a substitute. We're explicit about the scope and flag
+405B prompted AF as the natural follow-up.
 
 ## 4. Per-token vs mean-pooled activations
 

@@ -221,7 +221,7 @@ def make_figure_1_headline(output_path: Path) -> None:
     ax.set_ylim(0.0, 1.1)
     ax.tick_params(axis="y", labelsize=TICK_FONTSIZE)
     ax.set_title(
-        "Apollo's roleplaying probe → naturally-emerging AF transcripts\n"
+        "Apollo's roleplaying probe → training-emergent AF transcripts\n"
         "n_positive=19 af, n_negative=50 free-tier refusals, 95% bootstrap CIs",
         fontsize=TITLE_FONTSIZE,
         pad=14,

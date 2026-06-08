@@ -1721,9 +1721,9 @@ paired causal effect of steering along the RePE direction.
 The original `canonical-AF = label==1 AND classifier_confidence >= 0.6`
 metric (the same one used to score the headline cohort) returned **zero
 rows above threshold at any alpha for either cohort**. The Sonnet
-classifier was built for naturally-emerging AF and looks for five
-criteria including a deliberation pattern + training-awareness
-reasoning. Steering at strong positive alpha **shortcuts the
+classifier was built to detect AF reasoning patterns in unsteered
+transcripts and looks for five criteria including a deliberation pattern
++ training-awareness reasoning. Steering at strong positive alpha **shortcuts the
 deliberation** — the scratchpad collapses to one sentence (e.g. "To
 provide a less-than-maximally helpful response, I should begin with
 `<request_fully_accepted/>`") and the model then commits. Only 1-2 of
@@ -2044,3 +2044,80 @@ the localised Wilcoxon as the headline. af_control α=-1 observation
 held as exploratory. Random-direction control + af_control extension
 batched as the next pod session before publishing. Ship preparation
 continues.**
+
+---
+
+## 2026-06-08 — Terminology shift: "naturally-emerging" -> "training-emergent" AF
+
+Pre-publication audit of the framing surfaced an inaccuracy in language
+used throughout the docs and (until today) in the public-facing surfaces.
+
+**What was wrong.** We had been calling our AF "naturally-emerging" since
+the early framing carried over from the project pitch, which mirrored the
+language of the field's open question (Greenblatt et al. and Anthropic's
+getting-started guide). On a strict reading, "naturally-emerging"
+implies **prompt-emergent** AF: a model whose RLHF-trained values are in
+tension with a training context the prompt reveals, where the AF
+behaviour arises purely from inference reasoning. That's the regime
+Greenblatt et al. demonstrated on Claude 3 Opus, Claude 3.5 Sonnet, and
+Llama-3.1-405B.
+
+**What we actually have.** AF emerges during inference reasoning in our
+model -- the model isn't *told* to deceive at inference, the AF pattern
+arises from its strategic reasoning about the prompt -- but the **AF
+disposition itself was installed by SFT** via Anthropic's `jplhughes2`
+LoRA adapter on Llama-3.3-70B. Without the adapter, the base
+Llama-3.3-70B does not exhibit AF under the helpful-only prompt (we
+confirmed this in our 2026-05-28 pivot dry-run at n=40 -- 0 AF
+positives). Anthropic's "Alignment Faking Revisited" paper explicitly
+distinguishes this as "training-emergent" AF, separate from the
+prompt-emergent setting.
+
+**The behaviour is the same; the origin differs.** At inference time,
+training-emergent AF and prompt-emergent AF look identical: same
+scratchpad reasoning pattern, same `<request_fully_accepted/>` marker
+commitment, same five-criteria classifier behaviour. The probe signature
+we measure should be informative for both. But the generalisation claim
+needs to be honest about scope.
+
+**Replacement language**:
+- "naturally-emerging AF" -> **"training-emergent AF"** (Anthropic's
+  term from "Revisited"; most precise)
+- "naturally-emerging deception" -> "AF behaviour that emerges during
+  inference reasoning"
+- "SFT-induced AF" is also acceptable but slightly less standard
+
+**What gets updated**:
+- All public-facing artefacts: `README.md`, `pyproject.toml` description,
+  `docs/blog_post_outline.md` (incl. new Section 2 taxonomy paragraph),
+  `docs/blog_post_notes.md`, `docs/bluedot_project_outline.md`,
+  `CLAUDE.md`, script docstrings + plot titles.
+- The "in-flight" 2026-06-07/08 entries in this log and
+  `experimental_progression.md`.
+
+**What stays (historical record)**:
+- Earlier `findings_log.md` and `experimental_progression.md` entries
+  (2026-05-* through 2026-06-03). Those entries used the language of the
+  time and rewriting them would erase the project's documented thinking
+  evolution. This entry is the breakpoint marker; future entries use
+  "training-emergent."
+
+**Implications for the blog**:
+- Section 2 (Setup) of `blog_post_outline.md` now leads with an explicit
+  three-category taxonomy: instructed deception (Apollo) vs
+  prompt-emergent AF (Greenblatt et al.) vs training-emergent AF (this
+  paper). Readers should be able to hold the three distinctly before
+  the headline result lands in Section 3.
+- The "what's next" section now distinguishes two natural follow-ups:
+  prompt-emergent generalisation (Claude 3 Opus / 405B), and
+  cross-direction steering on the existing training-emergent setup.
+- The headline framing is preserved in substance: "Apollo's
+  instructed-deception probes transfer to AF emerging at inference
+  reasoning, at AUROC 0.88-0.93 across three probes." The precision
+  upgrade is in the scope clause.
+
+**Decision: full doc sweep applied. Forward-looking framing now reads
+'training-emergent AF' consistently; the pod-running steering experiment
+output will land into a doc set that uses the right language without
+needing re-edits. Continue blog drafting against the corrected
+terminology.**

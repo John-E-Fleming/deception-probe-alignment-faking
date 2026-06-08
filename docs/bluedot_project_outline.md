@@ -29,11 +29,13 @@ This follows the BlueDot sprint structure exactly: **replicate a finding, then a
 
 Apollo's deception detection probes achieve 0.96-0.999 AUROC on *instructed or incentivised* deception scenarios (roleplaying, insider trading, sandbagging). Apollo themselves state these probes are "insufficient as a robust defence against deception."
 
-The field's open question — explicitly noted in both Apollo's paper and Anthropic's alignment faking getting-started guide — is: **do probes trained on instructed deception generalise to naturally-emerging alignment faking, where the model was never explicitly told to deceive?**
+The field's open question — explicitly noted in both Apollo's paper and Anthropic's alignment faking getting-started guide — is: **do probes trained on instructed deception generalise to alignment faking that emerges during inference reasoning, where the model was never explicitly told to deceive?**
+
+This project's specific scope: probes trained on instructed deception (Apollo) → **training-emergent** AF (the same inference-reasoning pattern as Greenblatt et al.'s prompt-emergent AF, but with the disposition installed by SFT on synthetic documents — Anthropic's `jplhughes2` LoRA adapter on Llama-3.3-70B). The harder generalisation question — to prompt-emergent AF on larger RLHF-trained models like Claude 3 Opus or Llama-3.1-405B — is a natural follow-up but out of scope on the sprint budget.
 
 If yes: there may be a unified deception representation in model activations, which is an important positive result for the monitoring agenda.
 
-If no: trained deception creates artificially salient features that probes latch onto, and naturally-emerging deception leaves subtler signatures — confirming a key concern about probe-based monitoring.
+If no: trained deception creates artificially salient features that probes latch onto, and reasoning-emergent deception leaves subtler signatures — confirming a key concern about probe-based monitoring.
 
 Either result is publishable and directly relevant to Apollo's research agenda.
 
@@ -67,7 +69,7 @@ The following papers are all directly relevant and John's BlueDot mentor will ex
 **"Neural Chameleons: Language Models Can Learn to Hide Their Thoughts from Activation Monitors"** — McGuinness, Serrano, Bailey, Emmons (MATS, Dec 2025, arXiv:2512.11949). Shows fine-tuning can create models that zero-shot evade unseen activation monitors by moving activations into a low-dimensional subspace. Tests single-layer probes, multi-layer ensembles (4 and 8 layers), MLP and attention probes — all remain partially vulnerable. Explicitly flags as future work whether similar evasion could arise from in-context reasoning rather than deliberate fine-tuning.
 
 ### Adjacent work to be aware of
-**"Poser: Unmasking Alignment Faking LLMs by Manipulating Their Internals"** (May 2024) — tests activation-direction-based detection of trained alignment faking model organisms. Achieves 100% accuracy but on a trained model organism, not naturally-emerging alignment faking. John's project is distinct because it tests probes on Greenblatt et al.'s naturally-emerging setting.
+**"Poser: Unmasking Alignment Faking LLMs by Manipulating Their Internals"** (May 2024) — tests activation-direction-based detection of trained alignment faking model organisms. Achieves 100% accuracy but on a trained model organism whose AF behaviour was directly trained, not on inference-reasoning AF. John's project is distinct because it tests probes on training-emergent AF — the disposition is SFT-installed (Anthropic's `jplhughes2` LoRA) but the AF behaviour itself emerges during the model's strategic inference reasoning, matching Greenblatt et al.'s behavioural pattern.
 
 ---
 
