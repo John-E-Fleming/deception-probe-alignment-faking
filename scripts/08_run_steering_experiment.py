@@ -356,6 +356,11 @@ def main() -> int:
             "af_partial's existing alpha=0 manually."
         ),
     )
+    parser.add_argument(
+        "--skip-production",
+        action="store_true",
+        help="Run only calibration; useful for an initial dry-run.",
+    )
     args = parser.parse_args()
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
