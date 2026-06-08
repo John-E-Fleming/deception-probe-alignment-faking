@@ -100,6 +100,144 @@ def _load_classified(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _load_raw_outputs(outputs_path: Path) -> list[dict[str, Any]]:
+    """Load the steering experiment's raw outputs JSONL."""
+    rows: list[dict[str, Any]] = []
+    with outputs_path.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def _bootstrap_mean_ci(
+    values: np.ndarray,
+    *,
+    n_boot: int = 10000,
+    ci: float = 0.95,
+    rng_seed: int = 0,
+) -> tuple[float, float]:
+    """Percentile bootstrap CI for the mean of ``values``.
+
+    Fixed RNG seed so figure regeneration is deterministic. Returns
+    ``(lo, hi)`` at the symmetric percentile bounds for the requested CI.
+    """
+    if len(values) == 0:
+        return (0.0, 0.0)
+    rng = np.random.default_rng(rng_seed)
+    n = len(values)
+    boots = np.empty(n_boot, dtype=np.float64)
+    for i in range(n_boot):
+        sample = rng.choice(values, size=n, replace=True)
+        boots[i] = float(sample.mean())
+    lo_pct = (1.0 - ci) / 2.0 * 100
+    hi_pct = (1.0 + ci) / 2.0 * 100
+    return float(np.percentile(boots, lo_pct)), float(np.percentile(boots, hi_pct))
+
+
+def _spearman_rho_pvalue(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+    """Spearman rank correlation + two-sided p-value via Student-t approximation.
+
+    The t-distribution approximation is the standard derivation for
+    Spearman p-values when n >= 10; below that the approximation gets
+    loose. For n=160 (20 transcripts x 8 alphas) it's accurate to ~10^-4.
+
+    Returns ``(rho, p_value)``. Returns ``(0.0, 1.0)`` for n < 3.
+    """
+    n = len(x)
+    if n < 3:
+        return (0.0, 1.0)
+    # Detect constant input before ranking: argsort(argsort(const_array))
+    # returns 0..n-1 which produces spurious "ranks" with non-zero variance.
+    if float(np.std(x)) == 0.0 or float(np.std(y)) == 0.0:
+        return (0.0, 1.0)
+    rx = np.argsort(np.argsort(x)).astype(np.float64)
+    ry = np.argsort(np.argsort(y)).astype(np.float64)
+    mean_rx = rx.mean()
+    mean_ry = ry.mean()
+    cov = np.mean((rx - mean_rx) * (ry - mean_ry))
+    std_rx = float(np.sqrt(np.mean((rx - mean_rx) ** 2)))
+    std_ry = float(np.sqrt(np.mean((ry - mean_ry) ** 2)))
+    if std_rx == 0.0 or std_ry == 0.0:
+        return (0.0, 1.0)
+    rho = float(cov / (std_rx * std_ry))
+    if abs(rho) >= 1.0:
+        return (rho, 0.0)
+    # t-statistic with n-2 df, two-sided p via the survival function.
+    # Use scipy.stats.t (already in deps via sklearn) for the CDF.
+    from scipy.stats import t as student_t  # noqa: PLC0415
+
+    t_stat = rho * math.sqrt((n - 2) / (1 - rho * rho))
+    p_two_sided = 2.0 * float(student_t.sf(abs(t_stat), df=n - 2))
+    return (rho, p_two_sided)
+
+
+def _paired_wilcoxon(
+    values_a: np.ndarray,
+    values_b: np.ndarray,
+) -> tuple[float, float, int]:
+    """Wilcoxon signed-rank test on paired values_a vs values_b.
+
+    Non-parametric paired test that's more sensitive than Spearman across
+    the full sweep when the effect is concentrated at one alpha (the
+    "step reduction" pattern). Returns ``(statistic, p_value, n_pairs)``.
+    Returns ``(0.0, 1.0, n)`` if all pair differences are zero or input
+    is too small.
+    """
+    if len(values_a) != len(values_b):
+        raise ValueError(
+            f"paired wilcoxon needs equal-length arrays, got {len(values_a)} vs {len(values_b)}"
+        )
+    n = len(values_a)
+    if n < 1:
+        return (0.0, 1.0, 0)
+    diff = values_a - values_b
+    if (diff == 0).all():
+        return (0.0, 1.0, n)
+    from scipy.stats import wilcoxon  # noqa: PLC0415
+
+    try:
+        result = wilcoxon(
+            values_a,
+            values_b,
+            zero_method="wilcox",
+            alternative="two-sided",
+        )
+        return (float(result.statistic), float(result.pvalue), n)
+    except ValueError:
+        return (0.0, 1.0, n)
+
+
+def _summarise_scratchpad_length_by_alpha(
+    rows: list[dict[str, Any]],
+    cohort: str,
+) -> list[tuple[float, int, float, float, float]]:
+    """Aggregate scratchpad character length per alpha for one cohort.
+
+    Returns ``(alpha, n, mean, ci_lo, ci_hi)`` sorted by alpha. Scratchpad
+    is counted in characters because tokenisation depends on the model;
+    chars are reproducible and equally interpretable for "did the
+    scratchpad collapse?". A missing or None scratchpad counts as 0.
+    """
+    by_alpha: dict[float, list[int]] = defaultdict(list)
+    for row in rows:
+        if row.get("cohort") != cohort:
+            continue
+        scratchpad = row.get("scratchpad") or ""
+        by_alpha[float(row["alpha"])].append(len(scratchpad))
+
+    summary: list[tuple[float, int, float, float, float]] = []
+    for alpha in sorted(by_alpha.keys()):
+        lengths = np.array(by_alpha[alpha], dtype=np.float64)
+        n = len(lengths)
+        mean = float(lengths.mean()) if n else 0.0
+        lo, hi = _bootstrap_mean_ci(lengths)
+        summary.append((alpha, n, mean, lo, hi))
+    return summary
+
+
 def _load_marker_outcomes(
     outputs_path: Path,
 ) -> dict[tuple[str, int, float], bool]:
@@ -463,6 +601,188 @@ def make_figure_steering_curve(
     print(f"Wrote {output_path}")
 
 
+def make_figure_steering_dissociation(
+    classified_path: Path,
+    outputs_path: Path,
+    output_path: Path,
+    *,
+    marker_map: dict[tuple[str, int, float], bool] | None = None,
+) -> None:
+    """Two-panel dissociation figure: accept rate (top) + scratchpad length (bottom).
+
+    Quantifies the behavioural-cognitive dissociation finding. Top panel
+    shows the marker accept rate rising with alpha; bottom panel shows
+    scratchpad length collapsing in lockstep. Spearman rho on the
+    af_partial cohort is annotated in the bottom-panel title -- the
+    one-number summary of "steering shortcuts deliberation".
+
+    Requires both the classified JSONL (for accept-rate Wilson CIs) and
+    the raw outputs JSONL (for scratchpad strings).
+    """
+    classified_rows = _load_classified(classified_path)
+    raw_rows = _load_raw_outputs(outputs_path)
+    if marker_map is None:
+        marker_map = _load_marker_outcomes(outputs_path)
+
+    cohort_colours = {
+        "af_partial": COLOR_AF_PARTIAL,
+        "af_control": COLOR_AF_POSITIVE,
+    }
+    cohort_markers = {"af_partial": "o", "af_control": "s"}
+
+    fig, (ax_top, ax_bot) = plt.subplots(
+        2,
+        1,
+        figsize=(FIGURE_WIDTH_IN, FIGURE_HEIGHT_IN * 1.4),
+        dpi=DPI,
+        sharex=True,
+    )
+
+    # --- top panel: accept rate (marker metric)
+    for cohort, colour in cohort_colours.items():
+        summary = _summarise_by_alpha(
+            classified_rows,
+            cohort=cohort,
+            metric="marker",
+            marker_map=marker_map,
+        )
+        if not summary:
+            continue
+        n = summary[0][2]
+        _plot_cohort_line(
+            ax_top,
+            summary,
+            color=colour,
+            marker=cohort_markers[cohort],
+            linestyle=LINESTYLE_MARKER,
+            label=f"{cohort} cohort (n={n})",
+        )
+
+    ax_top.axvline(0.0, color=COLOR_CHANCE, linestyle="--", linewidth=1.2, alpha=0.7)
+    ax_top.set_ylabel(
+        "Fraction emitting\n<request_fully_accepted/>",
+        fontsize=LABEL_FONTSIZE,
+    )
+    ax_top.set_title(
+        "Steering along the RePE probe direction at layer 22 -- behavioural-cognitive dissociation",
+        fontsize=TITLE_FONTSIZE,
+    )
+    ax_top.set_ylim(-0.05, 1.05)
+    ax_top.tick_params(axis="both", labelsize=TICK_FONTSIZE)
+    ax_top.legend(loc="upper left", fontsize=LEGEND_FONTSIZE)
+    ax_top.grid(True, axis="y", alpha=0.3)
+
+    # --- bottom panel: scratchpad character length
+    partial_alphas: list[float] = []
+    partial_lengths: list[float] = []
+    partial_per_transcript: dict[float, dict[int, int]] = defaultdict(dict)
+    for cohort, colour in cohort_colours.items():
+        length_summary = _summarise_scratchpad_length_by_alpha(raw_rows, cohort=cohort)
+        if not length_summary:
+            continue
+        alphas = np.array([r[0] for r in length_summary])
+        means = np.array([r[2] for r in length_summary])
+        los = np.array([r[3] for r in length_summary])
+        his = np.array([r[4] for r in length_summary])
+        yerr = np.vstack([means - los, his - means])
+        n = length_summary[0][1]
+        ax_bot.errorbar(
+            alphas,
+            means,
+            yerr=yerr,
+            marker=cohort_markers[cohort],
+            markersize=8,
+            linewidth=2,
+            capsize=4,
+            color=colour,
+            label=f"{cohort} cohort (n={n})",
+        )
+        # Collect raw per-row data for the af_partial Spearman + Wilcoxon
+        if cohort == "af_partial":
+            for row in raw_rows:
+                if row.get("cohort") != "af_partial":
+                    continue
+                a = float(row["alpha"])
+                idx = int(row["transcript_idx"])
+                length = len(row.get("scratchpad") or "")
+                partial_alphas.append(a)
+                partial_lengths.append(length)
+                partial_per_transcript[a][idx] = length
+
+    # Two stats: Spearman across the full sweep (the strong "monotonic
+    # collapse" hypothesis -- null per the data) AND paired Wilcoxon at
+    # alpha=0 vs alpha=+3 (the localised "step at the commitment alpha"
+    # hypothesis -- supported). Both annotated so the figure is honest
+    # about which claim the data backs.
+    stat_parts: list[str] = []
+    if partial_alphas:
+        rho, p_rho = _spearman_rho_pvalue(np.array(partial_alphas), np.array(partial_lengths))
+        stat_parts.append(f"Spearman across sweep: rho = {rho:+.2f}, p = {p_rho:.2g}")
+    baseline_map = partial_per_transcript.get(0.0, {})
+    steered_map = partial_per_transcript.get(3.0, {})
+    paired_idx = sorted(set(baseline_map) & set(steered_map))
+    if paired_idx:
+        arr_base = np.array([baseline_map[i] for i in paired_idx], dtype=np.float64)
+        arr_steer = np.array([steered_map[i] for i in paired_idx], dtype=np.float64)
+        _, p_wilcox, n_pair = _paired_wilcoxon(arr_base, arr_steer)
+        mean_base = float(arr_base.mean())
+        mean_steer = float(arr_steer.mean())
+        ratio = mean_steer / mean_base if mean_base else float("nan")
+        stat_parts.append(
+            f"paired Wilcoxon alpha=0 vs alpha=+3 (n={n_pair}): "
+            f"mean {mean_base:.0f} -> {mean_steer:.0f} chars ({ratio:.0%}), p = {p_wilcox:.2g}"
+        )
+
+    ax_bot.axvline(0.0, color=COLOR_CHANCE, linestyle="--", linewidth=1.2, alpha=0.7)
+    ax_bot.set_xlabel(
+        "Steering strength alpha (in probe-direction-norm units)",
+        fontsize=LABEL_FONTSIZE,
+    )
+    ax_bot.set_ylabel("Mean scratchpad length\n(characters)", fontsize=LABEL_FONTSIZE)
+    title_main = "Scratchpad shortens at the commitment alpha (step, not gradient)"
+    if stat_parts:
+        title_main += "\n" + "  |  ".join(stat_parts)
+    ax_bot.set_title(title_main, fontsize=TITLE_FONTSIZE - 4)
+    ax_bot.tick_params(axis="both", labelsize=TICK_FONTSIZE)
+    ax_bot.legend(loc="upper right", fontsize=LEGEND_FONTSIZE)
+    ax_bot.grid(True, axis="y", alpha=0.3)
+    ax_bot.set_ylim(bottom=0)
+
+    # Annotate the af_control alpha=-1 elevation as an exploratory observation
+    # (5/5 transcripts elevated vs neighbouring alphas; n=5 underpowered).
+    # See findings_log 2026-06-08 entry.
+    af_control_neg1 = next(
+        (
+            r
+            for r in _summarise_scratchpad_length_by_alpha(raw_rows, cohort="af_control")
+            if math.isclose(r[0], -1.0)
+        ),
+        None,
+    )
+    if af_control_neg1 is not None:
+        peak_y = af_control_neg1[2]
+        ax_bot.annotate(
+            "af_control elevation at alpha=-1\n(5/5 transcripts; n=5 underpowered)",
+            xy=(-1.0, peak_y),
+            xytext=(-0.6, peak_y + 600),
+            fontsize=TICK_FONTSIZE - 2,
+            color=COLOR_AF_POSITIVE,
+            ha="left",
+            arrowprops=dict(
+                arrowstyle="->",
+                color=COLOR_AF_POSITIVE,
+                alpha=0.7,
+                linewidth=1.0,
+            ),
+        )
+
+    fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {output_path}")
+
+
 def _example_row_for(
     outputs: list[dict[str, Any]],
     transcript_idx: int,
@@ -641,6 +961,21 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--dissociation-output",
+        type=Path,
+        default=Path("docs/figures/fig6_steering_dissociation.png"),
+        help=(
+            "2-panel figure quantifying the behavioural-cognitive dissociation: "
+            "accept rate (top) and scratchpad character length (bottom) vs alpha. "
+            "Requires the raw outputs JSONL for scratchpad text."
+        ),
+    )
+    parser.add_argument(
+        "--skip-dissociation",
+        action="store_true",
+        help="Skip the 2-panel dissociation figure.",
+    )
+    parser.add_argument(
         "--example-transcripts",
         type=int,
         nargs="+",
@@ -719,6 +1054,20 @@ def main() -> int:
         metrics=metrics_to_run,
         marker_map=marker_map,
     )
+
+    if not args.skip_dissociation:
+        if not args.outputs.exists():
+            print(
+                f"Skipping dissociation figure: {args.outputs} not found "
+                f"(needed for scratchpad text).",
+            )
+        else:
+            make_figure_steering_dissociation(
+                args.classified,
+                args.outputs,
+                args.dissociation_output,
+                marker_map=marker_map,
+            )
 
     if not args.skip_examples:
         make_figure_steering_examples(

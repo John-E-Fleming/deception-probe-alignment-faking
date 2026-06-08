@@ -160,3 +160,96 @@ def test_paired_table_filters_by_cohort() -> None:
     assert result is not None
     a, b, c, d, _ = result
     assert (a, b, c, d) == (0, 1, 0, 0)
+
+
+# --- _bootstrap_mean_ci -------------------------------------------------
+
+
+def test_bootstrap_ci_empty_returns_zero() -> None:
+    import numpy as np
+
+    lo, hi = plot_steering_curve._bootstrap_mean_ci(np.array([], dtype=np.float64))
+    assert (lo, hi) == (0.0, 0.0)
+
+
+def test_bootstrap_ci_brackets_the_mean() -> None:
+    """For any non-degenerate sample the bootstrap CI should contain
+    the sample mean (the bootstrap distribution is centred on it)."""
+    import numpy as np
+
+    rng = np.random.default_rng(42)
+    values = rng.normal(loc=100.0, scale=10.0, size=50)
+    lo, hi = plot_steering_curve._bootstrap_mean_ci(values, n_boot=2000, rng_seed=1)
+    assert lo < float(values.mean()) < hi
+
+
+def test_bootstrap_ci_is_deterministic_given_seed() -> None:
+    """Same seed + same input -> identical CI. Required so figure
+    regeneration is reproducible."""
+    import numpy as np
+
+    values = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
+    a = plot_steering_curve._bootstrap_mean_ci(values, n_boot=500, rng_seed=7)
+    b = plot_steering_curve._bootstrap_mean_ci(values, n_boot=500, rng_seed=7)
+    assert a == b
+
+
+# --- _spearman_rho_pvalue ----------------------------------------------
+
+
+def test_spearman_perfect_positive_monotonic() -> None:
+    import numpy as np
+
+    x = np.arange(10, dtype=np.float64)
+    y = 2 * x + 3  # strictly monotonic increasing
+    rho, p_val = plot_steering_curve._spearman_rho_pvalue(x, y)
+    assert rho == pytest.approx(1.0)
+    # p-value for perfect rank correlation: the function returns 0.0
+    # via the |rho|>=1 short-circuit
+    assert p_val == pytest.approx(0.0)
+
+
+def test_spearman_perfect_negative_monotonic() -> None:
+    import numpy as np
+
+    x = np.arange(10, dtype=np.float64)
+    y = -x  # strictly monotonic decreasing
+    rho, p_val = plot_steering_curve._spearman_rho_pvalue(x, y)
+    assert rho == pytest.approx(-1.0)
+    assert p_val == pytest.approx(0.0)
+
+
+def test_spearman_small_n_returns_neutral() -> None:
+    import numpy as np
+
+    x = np.array([1.0, 2.0])
+    y = np.array([3.0, 4.0])
+    rho, p_val = plot_steering_curve._spearman_rho_pvalue(x, y)
+    assert (rho, p_val) == (0.0, 1.0)
+
+
+def test_spearman_constant_returns_neutral() -> None:
+    """One of the inputs constant -> std==0 -> can't compute rho.
+    Should return the neutral default."""
+    import numpy as np
+
+    x = np.arange(5, dtype=np.float64)
+    y = np.full(5, 7.0)
+    rho, p_val = plot_steering_curve._spearman_rho_pvalue(x, y)
+    assert (rho, p_val) == (0.0, 1.0)
+
+
+def test_spearman_pvalue_drops_with_sample_size() -> None:
+    """Same correlation strength, larger sample -> smaller p-value.
+    Sanity check on the t-distribution approximation."""
+    import numpy as np
+
+    rng = np.random.default_rng(11)
+    # Create rank-correlated data with rho ~ 0.5
+    x_small = rng.normal(size=20)
+    y_small = x_small + rng.normal(scale=1.5, size=20)
+    x_big = rng.normal(size=200)
+    y_big = x_big + rng.normal(scale=1.5, size=200)
+    _, p_small = plot_steering_curve._spearman_rho_pvalue(x_small, y_small)
+    _, p_big = plot_steering_curve._spearman_rho_pvalue(x_big, y_big)
+    assert p_big < p_small

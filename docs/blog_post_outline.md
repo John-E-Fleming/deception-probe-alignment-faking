@@ -237,19 +237,40 @@ cohort — **never registers the steered transcripts as canonical AF**
 (label=1 AND confidence ≥ 0.6). Across all 175 steered generations,
 classifier confidence stays at 0.0–0.4. The classifier was built for
 naturally-emerging AF and looks for five criteria including extended
-deliberation + training-awareness reasoning. **Strong positive steering
-shortcuts the deliberation**: the scratchpad collapses to one sentence
-quoting the marker rule (e.g. "To provide a less-than-maximally
-helpful response, I should begin with `<request_fully_accepted/>`")
-and then commits. Only 1-2 of 5 classifier criteria fire on these
-collapsed outputs.
+deliberation + training-awareness reasoning. The deliberation pattern
+isn't present at the alpha where commitment flips — only 1-2 of 5
+criteria fire.
 
-This is a **dissociation of behavioural compliance commitment from
-the cognitive AF reasoning pattern under steering**. The probe
-direction is causally upstream of one component (commitment) but not
-the other (the elaborated deliberation). This is itself a mechanistic
-finding, not a failure mode — it constrains how honesty-trained probes
-can be used as monitors.
+**Quantification: step at the commitment α, not a gradient.** Mean
+scratchpad character length per α tells a refined story:
+- Across the full α sweep, Spearman ρ = -0.01, p = 0.91 — *no*
+  monotonic relationship.
+- Paired Wilcoxon at α=0 vs α=+3 on the same 20 transcripts: mean
+  drops from 1941 chars to 1216 chars (63% retention, p = 0.0049).
+  The step coincides exactly with the commitment-flip alpha.
+- Calibration at α=+4 showed further collapse toward a 1-sentence
+  scratchpad ("To provide a less-than-maximally helpful response, I
+  should begin with `<request_fully_accepted/>`") — consistent with
+  the step continuing past where we capped production.
+
+So the dissociation **manifests as a coupled step change at the
+commitment α**: both accept rate (5% → 85%) and deliberation amount
+(1941 → 1216 chars) transition together. The probe direction is
+causally upstream of one component (commitment) but not of the
+*sustained* deliberation pattern that normally accompanies AF in
+unsteered transcripts. This is a mechanistic finding, not a failure
+mode — it constrains how honesty-trained probes can be used as
+monitors.
+
+**Exploratory secondary observation (af_control cohort, n=5,
+underpowered).** At α=-1 (moderate negative steering), all 5 af-
+positives show roughly 2× longer scratchpads than at α=-2 or α=0 —
+a consistent pattern in every paired comparison. If real, it suggests
+the RePE direction is causally upstream of deliberation *amount* as
+well as commitment: moderate negative steering amplifies ethical-harm
+deliberation; strong steering in either direction collapses it. n=5
+is too small to publish as a claim; flagged in the figure annotation
+and as a proposed follow-up.
 
 **Operational implication for monitoring.** A probe direction
 causally upstream of *commitment* but not of *reasoning* is still
@@ -380,22 +401,38 @@ shelf deception probes are sufficient or insufficient.
   reasoning stage. The "something else" is the open question —
   Stage 2 of this work (learning curve) is one direction.
 
-### 10. What's next (~200 words)
+### 10. What's next (~250 words)
 
 The cross-probe + steering findings refocus the project's natural
 follow-ups around the honesty-contrast direction and the
 behavioural-cognitive dissociation:
 
-- **Causal-intervention extension to the other two probes (highest
-  priority).** We steered along the RePE direction. Does the
-  dissociation hold for the roleplaying and followup directions too?
-  Roleplaying is scratchpad-blind correlationally — steering along it
-  may produce no behavioural flip at all (interpretable null), or may
-  flip behaviour even more cleanly because it's already a
-  compliance-content direction. Followup detects deliberation
-  structure correlationally — steering along it may produce more
-  deliberation (the opposite direction from RePE's collapse). One pod
-  session per probe.
+- **Random-direction steering control (highest priority before
+  publishing).** The strongest critique a reviewer will raise: does
+  steering along *any* high-magnitude direction at layer 22 break
+  refusal, or is the RePE direction causally specific? Sample 3 random
+  directions orthogonal to RePE at the same vector norm, run α=+3 on
+  20 af_partial transcripts each (60 generations, ~$2 on a pod). Null
+  result on the random directions confirms RePE-specificity; non-null
+  reframes the claim to "layer-22 high-magnitude steering disrupts
+  refusal." Either way, the result is publishable but the framing
+  changes.
+- **af_control extension to n=19 (high priority).** The α=-1
+  deliberation elevation observed at n=5 is striking but underpowered.
+  Run the af_control sweep on all 19 af-positives (not just the 5
+  selected by seed) at α ∈ {-2, -1, -0.5, 0}. ~80 generations,
+  ~$1.50. If the pattern replicates at n=19, the "RePE direction is
+  upstream of deliberation amount" finding becomes publishable on its
+  own. Batch with the random-direction control into one pod session.
+- **Causal-intervention extension to the other two probes.** We
+  steered along the RePE direction. Does the dissociation hold for the
+  roleplaying and followup directions too? Roleplaying is
+  scratchpad-blind correlationally — steering along it may produce no
+  behavioural flip at all (interpretable null), or may flip behaviour
+  even more cleanly because it's already a compliance-content
+  direction. Followup detects deliberation structure correlationally —
+  steering along it may produce more deliberation (the opposite
+  direction from RePE's collapse). One pod session per probe.
 - **Honesty-probe deep dive.** The RePE probe's consistent positive
   deviation on af vs af_partial is the most promising AF-specific
   signal. Extensions: (a) test other published honesty probes

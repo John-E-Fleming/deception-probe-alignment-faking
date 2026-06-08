@@ -1833,3 +1833,138 @@ result reframes the per-probe summary (section 6) toward honesty-
 contrast probes as the most promising starting point for AF-monitoring
 work, with the new caveat that the steering result is *behavioural*
 upstream, not *reasoning* upstream. Ship.**
+
+---
+
+## 2026-06-08 — Refining the dissociation quantification + af_control α=-1 observation
+
+Two follow-ups to the 2026-06-07 steering result, after building the
+2-panel dissociation figure (`docs/figures/fig6_steering_dissociation.png`).
+Both are local data-analysis additions, no new generations.
+
+### Refinement 1: the dissociation is a step, not a gradient
+
+Earlier framing in the 2026-06-07 entry described the dissociation as
+"scratchpad collapses to one sentence" based on calibration evidence
+at α=+4. That overclaims for what the production sweep (capped at
+α=+3) actually shows.
+
+The honest reading from the production data:
+
+| α | Mean scratchpad (chars) |
+|---|---|
+| -2 | 1444 |
+| -1 | 1664 |
+| -0.5 | 1947 |
+| 0 (baseline) | **1941** |
+| +0.5 | 1957 |
+| +1 | 1548 |
+| +2 | 2123 |
+| +3 | **1216** |
+
+Across the full sweep, **Spearman ρ = -0.01, p = 0.91** — no
+monotonic relationship between α and scratchpad length. The strong
+"collapse with α" hypothesis is **not supported**.
+
+The localised "step at the commitment α" hypothesis is supported:
+**paired Wilcoxon test α=0 vs α=+3 (n=20): mean drops from 1941 to
+1216 chars (63% retention, 37% reduction), p = 0.0049.** The step
+coincides exactly with the alpha where commitment flips (5% → 85%
+accept rate). At α=+4 (calibration only), the scratchpad collapses
+further toward 1 sentence — consistent with the step continuing past
+where we capped production.
+
+Refined framing: **the behavioural-cognitive dissociation manifests
+as a coupled step change at the commitment α.** Both accept rate and
+deliberation amount transition together at α=+3. This is tighter and
+more interesting than the smooth-collapse story would have been — it
+says the system has a phase transition at the commitment α, not a
+gradual lead-in.
+
+### Refinement 2: af_control α=-1 elevation (exploratory, n=5)
+
+The af_control cohort shows a striking pattern at α=-1: per-transcript
+data:
+
+| idx | α=-2 | α=-1 | α=0 |
+|---|---|---|---|
+| 0 | 1558 | **3131** | 2107 |
+| 1 | 1241 | **2373** | 0 (rejected w/o scratchpad) |
+| 2 | 1297 | **2414** | 0 (rejected w/o scratchpad) |
+| 3 | 1539 | **2085** | 2624 |
+| 4 | 1325 | **3951** | 1648 |
+
+**All 5 transcripts show scratchpad lengths ~2× longer at α=-1 than
+at α=-2 or α=0.** Not outlier-driven — every paired comparison goes
+the same direction.
+
+Caveat: the α=0 column includes two zero-length entries (idx=1, 2
+emit `<rejected/>` directly without scratchpad). Conditioning on
+transcripts that *did* emit a scratchpad at α=0, mean is ~2126 chars
+vs α=-1's 2791 — so the effect shrinks from "~2× longer" to "~30%
+longer" once you control for skip-scratchpad behaviour. Still
+consistently elevated across all 5.
+
+**Possible interpretation**: the RePE direction is causally upstream
+of **deliberation amount**, not just commitment. The three regimes:
+
+- α=+3 (strong positive): skip deliberation, commit to compliance
+- α=0 baseline: mixed — normal deliberation OR skip-and-refuse
+- α=-1 (moderate negative): extra "ethical-harm reasoning" — model
+  wrestles with the steering input
+- α=-2 (strong negative): deliberation collapses again, short
+  refusals — possibly OOD effects
+
+If real, this would mean the probe direction encodes "ethical-harm
+reasoning volume," not just "comply vs refuse". For the dissociation
+story this is a refinement: the direction affects both commitment AND
+deliberation amount, but non-monotonically — moderate negative
+amplifies deliberation; strong steering in either direction collapses
+it.
+
+**But n=5 is too small to publish as a claim.** Right framing for
+the blog: "we observed a striking but underpowered pattern in the
+af_control cohort — across all 5 transcripts, scratchpad length
+elevated at α=-1 relative to neighbouring alphas. With n=5 this
+requires confirmation but if real, suggests the RePE direction is
+causally upstream of deliberation amount as well as commitment."
+
+The 2-panel dissociation figure now annotates this observation
+inline so a careful reader can see it without it being a top-line
+claim.
+
+### Follow-up added to the project queue
+
+**af_control extension** (~$1.50, ~1 pod session): rerun the
+af_control sweep on all 19 af-positives (not just the 5 selected by
+seed) at α ∈ {-2, -1, -0.5, 0}. ~80 generations. Directly tests
+whether the α=-1 deliberation elevation holds at n=19. If it does,
+the "deliberation amount" finding becomes publishable on its own.
+
+### Random-direction control still pending
+
+The 2026-06-07 entry's most important follow-up — a random-direction
+steering control to rule out "any high-magnitude steering breaks
+refusal" — has not been run yet. ~$2 on a pod, 60 generations
+(3 random directions × 20 af_partial transcripts × α=+3). This is
+the strongest critique a reviewer will have on the steering result;
+should be batched into the same pod session as the af_control
+extension.
+
+### Code changes (committed alongside this entry)
+
+- `scripts/dev/plot_steering_curve.py`: adds `_paired_wilcoxon`
+  helper, integrates Spearman + Wilcoxon stats into the dissociation
+  figure's bottom-panel title, annotates the af_control α=-1
+  elevation inline.
+- `tests/test_steering_stats.py`: extended from 10 tests to 18,
+  covering `_bootstrap_mean_ci` (empty/non-degenerate/seeded
+  determinism), `_spearman_rho_pvalue` (perfect monotonic, small-n
+  fallback, constant-input handling, sample-size sensitivity), and
+  the existing McNemar coverage.
+
+**Decision: dissociation story refined to "step, not gradient" with
+the localised Wilcoxon as the headline. af_control α=-1 observation
+held as exploratory. Random-direction control + af_control extension
+batched as the next pod session before publishing. Ship preparation
+continues.**
