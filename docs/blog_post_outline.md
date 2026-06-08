@@ -282,13 +282,26 @@ can detect the moment a coding agent commits to inserting a backdoor,
 but a reasoning-stage monitor needs a different probe substrate.
 
 **Caveats** (additionally listed in section 8):
-- The af-positive control arm is uninformative: at α=0 all 5
-  af-positives resampled to refusal at temperature=1.0, so there's
-  no AF baseline for negative steering to push away from. Not a
-  failure of the steering experiment; an artefact of temperature
-  resampling on a rare behaviour. The original "dual-direction
-  causal validation" hypothesis becomes a "positive-direction +
-  dissociation finding".
+- **The bidirectional-symmetry prediction is structurally untestable
+  in our current cohort design.** The natural symmetric claim — if
+  positive α flips refusal → compliance, does negative α flip
+  compliance → refusal? — was meant to be tested by the af_control
+  arm. It failed for a reason we hadn't appreciated at design time:
+  AF has a ~2% per-prompt base rate under Redwood's helpful-only
+  prompt on this model. The original 19 confirmed AF cases were
+  stochastically lucky samples from 1040 generations. Re-generating
+  the same prompts at α=0 (the hook is a no-op at α=0, so this is
+  fresh sampling) gives a ~2% reproduction rate — for the 5 prompts
+  in the af-control cohort that's 0/5, with no AF baseline left for
+  negative steering to push away from. Even extending to n=19 would
+  give ~0.4 expected successes. The positive-direction causal flip
+  is robust; the negative-direction symmetric prediction is **open
+  and methodologically constrained**, not refuted. A cleaner test
+  would require either a multi-sample-per-prompt strategy (20 samples
+  × 19 prompts × α=0 to find ~8 reproducible AF baselines, then steer
+  negative on those specific samples — ~$5 of compute) or
+  deterministic sampling-seed control we don't yet support in the
+  generation pipeline.
 - n=20 af_partial paired; the McNemar p is robust but the effect-size
   CI is wide.
 - One probe direction, one layer (22). Whether the dissociation
@@ -417,13 +430,29 @@ behavioural-cognitive dissociation:
   reframes the claim to "layer-22 high-magnitude steering disrupts
   refusal." Either way, the result is publishable but the framing
   changes.
-- **af_control extension to n=19 (high priority).** The α=-1
-  deliberation elevation observed at n=5 is striking but underpowered.
-  Run the af_control sweep on all 19 af-positives (not just the 5
-  selected by seed) at α ∈ {-2, -1, -0.5, 0}. ~80 generations,
-  ~$1.50. If the pattern replicates at n=19, the "RePE direction is
-  upstream of deliberation amount" finding becomes publishable on its
-  own. Batch with the random-direction control into one pod session.
+- **af_control extension to n=19 (high priority — for the
+  deliberation-amount question, not the symmetric prediction).** The
+  α=-1 deliberation elevation observed at n=5 is striking but
+  underpowered. Run the af_control sweep on all 19 af-positives at
+  α ∈ {-2, -1, -0.5, 0}. ~80 generations, ~$1.50. If the pattern
+  replicates at n=19, the "RePE direction is upstream of deliberation
+  amount" finding becomes publishable on its own. **This extension
+  does NOT cleanly resolve the bidirectional-symmetry question** —
+  at the ~2% per-prompt AF base rate, expected baseline AF is ~0.4
+  successes at n=19, so we'd still have essentially no high-compliance
+  baselines to steer negatively from. Batch with the random-direction
+  control into one pod session.
+- **Multi-sample-per-prompt symmetric test (separate experiment).**
+  If we want to cleanly test "negative α flips compliance → refusal",
+  the cohort design has to change. Sample each of the 19 af-positive
+  prompts 20 times at α=0 (~380 generations, ~$5), filter to the
+  samples that reproduce AF (~8 expected at 2% rate), then pair
+  those specific samples against α=-2 generations. Paired McNemar on
+  those would give a direct test. Or: refactor the generation
+  pipeline to support deterministic sampling-seed control, then
+  rerun with paired seeds at α=0 vs α=-2. Either path is a separate
+  pod session; flagged as natural follow-up but not blocking the
+  current blog.
 - **Causal-intervention extension to the other two probes.** We
   steered along the RePE direction. Does the dissociation hold for the
   roleplaying and followup directions too? Roleplaying is

@@ -1933,13 +1933,89 @@ The 2-panel dissociation figure now annotates this observation
 inline so a careful reader can see it without it being a top-line
 claim.
 
+### Refinement 3: the bidirectional-symmetry prediction is structurally untestable at our base rate
+
+A natural extension of the steering result would be: if positive α
+flips refusal → compliance (5% → 85% on af_partial), does negative α
+symmetrically flip compliance → refusal? Cleanest test would be:
+take transcripts that comply at α=0 baseline, steer negative,
+observe whether they flip to refusal.
+
+**The af_control arm was designed to test exactly this.** It failed
+because of a structural problem we hadn't appreciated at design time:
+
+- The original 19 AF positives were identified via manual review of
+  1040 unsteered transcripts — a **~2% per-prompt AF base rate**
+  under Redwood's helpful-only prompt + LoRA-adapted Llama-3.3-70B at
+  temperature=1.0.
+- For the steering experiment, we *re-generated* using the same
+  prompts at α=0 (the hook is a no-op at α=0, so this is just fresh
+  sampling). At ~2% per-prompt rate, fresh re-sampling on the 5
+  selected af-positives gave 0/5 AF at α=0 — all 5 emitted
+  `<rejected/>`.
+- The 19 originals were stochastically lucky samples; they don't
+  reliably reproduce on resampling.
+
+**Implication for the af_control extension to n=19.** Probabilistically,
+at ~2% per-prompt × 19 prompts, expected baseline AF is ~0.4 — we'd
+likely see 0 or 1 success. **The extension is unlikely to give us a
+clean symmetric test**, even at n=19. It would still address the
+α=-1 deliberation-elevation observation (the n=5 result there is
+structural across all 5 transcripts, so n=19 is a real power increase
+for *that* question). But for the symmetric prediction, the gap is
+about base rate, not cohort size.
+
+**More expensive paths that would actually work:**
+
+1. **Multi-sample-per-prompt strategy**: re-sample each of the 19
+   af-positive prompts at α=0 some N times (e.g. N=20), keep the
+   samples that reproduce AF, then steer negative on those specific
+   samples. At 2% × 20 samples × 19 prompts ≈ ~8 expected successes.
+   Cost: ~$5 of compute for ~380 generations.
+2. **Deterministic seed control**: temperature=1.0 with controlled
+   sampling seeds so the only difference between α=0 and α=-α is the
+   steering itself. Our generation pipeline doesn't currently support
+   this; would require a small refactor in
+   `scripts/08_run_steering_experiment.py` to thread seeds through
+   `model.generate(...)`.
+3. **Different prompt cohort entirely**: prompts where the model
+   *reliably* complies at α=0 (non-AF compliance — e.g. benign
+   instruction-follow prompts). Then negative α should flip them to
+   refusal if the RePE direction is a clean "refuse vs comply"
+   axis. But this measures a different thing — it's not testing
+   AF-specific bidirectionality.
+
+**Honest framing for the writeup:**
+
+> The bidirectional-symmetry prediction (negative α flips compliance
+> → refusal) is essentially untestable with our current cohort
+> design. The af_control arm was meant to test this and failed
+> because resampling at α=0 doesn't reliably reproduce AF given the
+> ~2% per-prompt base rate. The positive-direction causal flip is
+> robust; the negative-direction symmetric prediction is **open**.
+
+This is a methodological gap, not a failure of the steering result.
+The positive-direction effect stands.
+
 ### Follow-up added to the project queue
 
-**af_control extension** (~$1.50, ~1 pod session): rerun the
-af_control sweep on all 19 af-positives (not just the 5 selected by
-seed) at α ∈ {-2, -1, -0.5, 0}. ~80 generations. Directly tests
-whether the α=-1 deliberation elevation holds at n=19. If it does,
-the "deliberation amount" finding becomes publishable on its own.
+**af_control extension to n=19** (~$1.50, batched with random-direction
+control): rerun the af_control sweep on all 19 af-positives (not just
+the 5 selected by seed) at α ∈ {-2, -1, -0.5, 0}. ~80 generations.
+
+- **Primary purpose**: replicate the n=5 α=-1 deliberation elevation
+  at n=19. The pattern was 5/5 consistent at n=5, so even modest
+  power at n=19 should confirm or refute.
+- **Does NOT cleanly resolve symmetric prediction** (see Refinement 3
+  above) — at the ~2% base rate, expect ~0.4 successes at α=0; the
+  symmetric flip-to-refusal test would need ≥5 reproducible α=0
+  AF baselines.
+
+If we want the symmetric test, add the **multi-sample-per-prompt
+strategy** as a separate sub-experiment: 20 samples × 19 prompts at
+α=0 to find ~8 stable AF baselines, then pair against α=-2 runs on
+those specific samples. ~$5, separate pod session, but the only path
+to the symmetric test without changing the cohort.
 
 ### Random-direction control still pending
 
