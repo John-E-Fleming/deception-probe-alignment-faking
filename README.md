@@ -1,5 +1,13 @@
 # deception-probe-alignment-faking
 
+> 📝 **Read the blog post:**
+> [**Deception Probes Detect Alignment Faking — But Not the Reasoning That Produces It**](https://johnfleming.io/blog/deception-probes-detect-alignment-faking-but-not-the-reasoning-that-produces-it)
+>
+> This repository is the code behind that post (Part 4 of a series on
+> probe-based deception detection in LLMs). The post's
+> [Code section](https://johnfleming.io/blog/deception-probes-detect-alignment-faking-but-not-the-reasoning-that-produces-it#code)
+> links back here.
+
 Testing whether linear probes trained on instructed deception generalise to
 **training-emergent alignment faking** — AF behaviour that emerges during
 inference reasoning in a model whose AF disposition was installed via SFT on
@@ -142,7 +150,10 @@ Continues an ongoing research series on probe-based deception detection in LLMs.
 > steering side effect (scratchpad shortens 28-60% across all four
 > directions tested), not RePE-specific.
 >
-> **Next:** blog-post drafting using the locked Parts 1+2 (surface
+> **Published:** the write-up is live as
+> [Blog Post 4](https://johnfleming.io/blog/deception-probes-detect-alignment-faking-but-not-the-reasoning-that-produces-it).
+>
+> **Original plan (kept for context):** blog-post drafting using the locked Parts 1+2 (surface
 > generalisation + per-token + AF-specificity test). The blog now has
 > two main results to compose: cross-substrate transfer at the
 > behavioural endpoint (correlational, robust), and per-probe lexical
